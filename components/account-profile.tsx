@@ -68,7 +68,9 @@ export function AccountProfile() {
         <Text style={styles.email}>{user?.email}</Text>
         <View style={styles.roleBadge}>
           <Text style={styles.role}>
-            {user?.role === "expert" ? "DOCTOR" : "PATIENT"}
+            {user?.role === "expert"
+              ? "MEDICAL REVIEWER"
+              : "PATIENT"}
           </Text>
         </View>
 

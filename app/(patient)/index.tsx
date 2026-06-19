@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Href, router } from "expo-router";
+import { useMemo } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
@@ -18,11 +19,14 @@ const RISK_COLORS: Record<RiskLevel, string> = {
 
 export default function PatientHome() {
   const user = useAuthStore((state) => state.user);
-  const assessments = useHealthAssistantStore((state) =>
-    state.messages
+  const messages = useHealthAssistantStore((state) => state.messages);
+  const assessments = useMemo(
+    () =>
+      messages
       .filter((message) => message.assessment)
       .map((message) => message.assessment!)
       .reverse(),
+    [messages],
   );
   const latestAssessment = assessments[0];
 

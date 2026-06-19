@@ -1,8 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
+import { requireOptionalNativeModule } from "expo";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import * as Speech from "expo-speech";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Image,
@@ -25,12 +26,91 @@ import {
 } from "@/stores/health-assistant-store";
 import { useEmergencyStore } from "@/stores/emergency-store";
 
+type SpeechResultEvent = {
+  isFinal: boolean;
+  results: { transcript?: string }[];
+};
+
+type SpeechErrorEvent = {
+  error?: string;
+  message?: string;
+};
+
+type SpeechRecognitionModule = {
+  addListener: (
+    event: "start" | "end" | "result" | "error",
+    listener: (event: SpeechResultEvent & SpeechErrorEvent) => void,
+  ) => { remove: () => void };
+  isRecognitionAvailable: () => boolean;
+  requestPermissionsAsync: () => Promise<{ granted: boolean }>;
+  start: (options: {
+    continuous: boolean;
+    interimResults: boolean;
+    lang: string;
+  }) => void;
+  stop: () => void;
+};
+
+const speechRecognition =
+  requireOptionalNativeModule<SpeechRecognitionModule>(
+    "ExpoSpeechRecognition",
+  );
+
 export default function PatientAssistant() {
   const [message, setMessage] = useState("");
   const [imageUri, setImageUri] = useState<string | undefined>();
   const [isListening, setIsListening] = useState(false);
+  const lastTranscript = useRef("");
   const { messages, sendMessage } = useHealthAssistantStore();
   const contact = useEmergencyStore((state) => state.contact);
+
+  useEffect(() => {
+    if (!speechRecognition) return;
+
+    const startSubscription = speechRecognition.addListener("start", () =>
+      setIsListening(true),
+    );
+    const endSubscription = speechRecognition.addListener("end", () =>
+      setIsListening(false),
+    );
+    const resultSubscription = speechRecognition.addListener(
+      "result",
+      (event) => {
+        const transcript = event.results?.[0]?.transcript?.trim() ?? "";
+        if (!transcript) return;
+        setMessage(transcript);
+
+        if (event.isFinal && transcript !== lastTranscript.current) {
+          lastTranscript.current = transcript;
+          const assessment = sendMessage(transcript);
+          setMessage("");
+          Speech.speak(assessment.summary, {
+            language: "en-US",
+            rate: 0.92,
+          });
+        }
+      },
+    );
+    const errorSubscription = speechRecognition.addListener(
+      "error",
+      (event) => {
+        setIsListening(false);
+        if (event.error !== "aborted" && event.error !== "no-speech") {
+          Alert.alert(
+            "Voice recognition error",
+            event.message ?? "Please try again.",
+          );
+        }
+      },
+    );
+
+    return () => {
+      startSubscription.remove();
+      endSubscription.remove();
+      resultSubscription.remove();
+      errorSubscription.remove();
+    };
+  }, [sendMessage]);
 
   const pickFromLibrary = async () => {
     const permission =
@@ -165,18 +245,43 @@ export default function PatientAssistant() {
     );
   };
 
-  const toggleVoice = () => {
-    if (isListening) {
-      setIsListening(false);
+  const toggleVoice = async () => {
+    if (!speechRecognition) {
+      Alert.alert(
+        "Development build required",
+        "Install the Smart Health development build to use live voice recognition.",
+      );
       return;
     }
 
-    setIsListening(true);
-    Alert.alert(
-      "Voice chat preview",
-      "The microphone design works in Expo Go. Live speech recognition requires a development build.",
-      [{ text: "OK", onPress: () => setIsListening(false) }],
-    );
+    if (isListening) {
+      speechRecognition.stop();
+      return;
+    }
+
+    if (!speechRecognition.isRecognitionAvailable()) {
+      Alert.alert(
+        "Voice unavailable",
+        "Speech recognition is not available on this device.",
+      );
+      return;
+    }
+    const permission = await speechRecognition.requestPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert(
+        "Microphone permission needed",
+        "Allow microphone access to talk with Smart Health AI.",
+      );
+      return;
+    }
+
+    lastTranscript.current = "";
+    Speech.stop();
+    speechRecognition.start({
+      continuous: false,
+      interimResults: true,
+      lang: "en-US",
+    });
   };
 
   return (

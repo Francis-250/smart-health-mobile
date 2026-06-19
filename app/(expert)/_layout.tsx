@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Tabs } from "expo-router";
+import { Redirect, Tabs } from "expo-router";
 import { COLORS } from "@/constants/colors";
+import { useAuthStore } from "@/stores/auth-store";
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -21,6 +22,10 @@ function icon(
 }
 
 export default function ExpertTabsLayout() {
+  const { hydrated, user } = useAuthStore();
+  if (!hydrated) return null;
+  if (user?.role !== "expert") return <Redirect href="/(auth)/login" />;
+
   return (
     <Tabs
       screenOptions={{
@@ -52,7 +57,7 @@ export default function ExpertTabsLayout() {
       <Tabs.Screen
         name="patients"
         options={{
-          title: "Patients",
+          title: "Reviews",
           tabBarIcon: ({ color, focused, size }) =>
             icon("people-outline", "people", color, focused, size),
         }}
@@ -60,9 +65,25 @@ export default function ExpertTabsLayout() {
       <Tabs.Screen
         name="appointments"
         options={{
-          title: "Schedule",
+          href: null,
           tabBarIcon: ({ color, focused, size }) =>
             icon("calendar-outline", "calendar", color, focused, size),
+        }}
+      />
+      <Tabs.Screen
+        name="content"
+        options={{
+          title: "Content",
+          tabBarIcon: ({ color, focused, size }) =>
+            icon("book-outline", "book", color, focused, size),
+        }}
+      />
+      <Tabs.Screen
+        name="reports"
+        options={{
+          title: "Reports",
+          tabBarIcon: ({ color, focused, size }) =>
+            icon("bar-chart-outline", "bar-chart", color, focused, size),
         }}
       />
       <Tabs.Screen

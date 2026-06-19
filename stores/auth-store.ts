@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import * as SecureStore from "expo-secure-store";
+import { createJSONStorage, persist, StateStorage } from "zustand/middleware";
 
 export type UserRole = "patient" | "expert";
 
@@ -33,30 +35,60 @@ export const DUMMY_USERS: DummyUser[] = [
 type AuthState = {
   user: AuthUser | null;
   error: string | null;
+  hydrated: boolean;
   login: (email: string, password: string) => AuthUser | null;
   logout: () => void;
   clearError: () => void;
+  setHydrated: (hydrated: boolean) => void;
 };
 
-export const useAuthStore = create<AuthState>((set) => ({
-  user: null,
-  error: null,
-  login: (email, password) => {
-    const matchedUser = DUMMY_USERS.find(
-      (user) =>
-        user.email.toLowerCase() === email.trim().toLowerCase() &&
-        user.password === password,
-    );
+const storage: StateStorage = {
+  getItem: (name) => SecureStore.getItemAsync(name),
+  setItem: (name, value) => SecureStore.setItemAsync(name, value),
+  removeItem: (name) => SecureStore.deleteItemAsync(name),
+};
 
-    if (!matchedUser) {
-      set({ error: "Email or password is incorrect.", user: null });
-      return null;
-    }
+export const useAuthStore = create<AuthState>()(
+  persist(
+    (set) => ({
+      user: null,
+      error: null,
+      hydrated: false,
+      login: (email, password) => {
+        const matchedUser = DUMMY_USERS.find(
+          (user) =>
+            user.email.toLowerCase() === email.trim().toLowerCase() &&
+            user.password === password,
+        );
 
-    const { password: _password, ...user } = matchedUser;
-    set({ error: null, user });
-    return user;
-  },
-  logout: () => set({ error: null, user: null }),
-  clearError: () => set({ error: null }),
-}));
+        if (!matchedUser) {
+          set({ error: "Email or password is incorrect.", user: null });
+          return null;
+        }
+
+        const { password: _password, ...user } = matchedUser;
+        set({ error: null, user });
+        return user;
+      },
+      logout: () => set({ error: null, user: null }),
+      clearError: () => set({ error: null }),
+      setHydrated: (hydrated) => set({ hydrated }),
+    }),
+    {
+      name: "smart-health-session",
+      storage: createJSONStorage(() => storage),
+      partialize: (state) => ({ user: state.user }),
+      onRehydrateStorage: () => (state) => {
+        const persistedRole = state?.user?.role as string | undefined;
+        if (
+          persistedRole &&
+          persistedRole !== "patient" &&
+          persistedRole !== "expert"
+        ) {
+          state?.logout();
+        }
+        state?.setHydrated(true);
+      },
+    },
+  ),
+);
