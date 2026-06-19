@@ -1,15 +1,16 @@
-import { Link } from "expo-router";
-import { Text, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Redirect } from "expo-router";
+import { useAuthStore } from "@/stores/auth-store";
 
 export default function Index() {
-  return (
-    <SafeAreaView style={{ flex: 1 }}>
-      <View>
-        <Link href="/(auth)/login">
-          <Text>Go to Login</Text>
-        </Link>
-      </View>
-    </SafeAreaView>
-  );
+  const user = useAuthStore((state) => state.user);
+
+  if (user?.role === "expert") {
+    return <Redirect href="/(expert)" />;
+  }
+
+  if (user?.role === "patient") {
+    return <Redirect href="/(patient)" />;
+  }
+
+  return <Redirect href="/(auth)/login" />;
 }

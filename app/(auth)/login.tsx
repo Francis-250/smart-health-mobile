@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Link, router } from "expo-router";
 import { useState } from "react";
 import {
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -12,6 +13,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { DUMMY_USERS, useAuthStore } from "@/stores/auth-store";
 
 const COLORS = {
   background: "#F7FBF9",
@@ -30,6 +32,25 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const { clearError, error, login } = useAuthStore();
+
+  const handleLogin = () => {
+    Keyboard.dismiss();
+    const user = login(email, password);
+
+    if (user?.role === "expert") {
+      router.replace("/(expert)");
+    } else if (user?.role === "patient") {
+      router.replace("/(patient)");
+    }
+  };
+
+  const fillDemoAccount = (index: number) => {
+    const demoUser = DUMMY_USERS[index];
+    setEmail(demoUser.email);
+    setPassword(demoUser.password);
+    clearError();
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -88,7 +109,10 @@ export default function Login() {
                   autoCapitalize="none"
                   autoComplete="email"
                   keyboardType="email-address"
-                  onChangeText={setEmail}
+                  onChangeText={(value) => {
+                    setEmail(value);
+                    clearError();
+                  }}
                   placeholder="example@email.com"
                   placeholderTextColor="#8B9691"
                   returnKeyType="next"
@@ -107,7 +131,11 @@ export default function Login() {
                 <TextInput
                   autoCapitalize="none"
                   autoComplete="password"
-                  onChangeText={setPassword}
+                  onChangeText={(value) => {
+                    setPassword(value);
+                    clearError();
+                  }}
+                  onSubmitEditing={handleLogin}
                   placeholder="Enter your password"
                   placeholderTextColor="#8B9691"
                   returnKeyType="done"
@@ -130,6 +158,8 @@ export default function Login() {
                 </Pressable>
               </View>
 
+              {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
               <Link href="/(auth)/forgot-password" asChild>
                 <Pressable style={styles.forgotButton}>
                   <Text style={styles.forgotText}>Forgot password?</Text>
@@ -138,6 +168,7 @@ export default function Login() {
 
               <Pressable
                 accessibilityRole="button"
+                onPress={handleLogin}
                 style={({ pressed }) => [
                   styles.loginButton,
                   pressed && styles.loginButtonPressed,
@@ -146,6 +177,42 @@ export default function Login() {
                 <Text style={styles.loginButtonText}>LOGIN</Text>
                 <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
               </Pressable>
+            </View>
+
+            <View style={styles.demoSection}>
+              <Text style={styles.demoTitle}>Demo accounts</Text>
+              <View style={styles.demoRow}>
+                <Pressable
+                  onPress={() => fillDemoAccount(0)}
+                  style={({ pressed }) => [
+                    styles.demoCard,
+                    pressed && styles.buttonPressed,
+                  ]}
+                >
+                  <Ionicons
+                    name="person-outline"
+                    size={20}
+                    color={COLORS.primary}
+                  />
+                  <Text style={styles.demoRole}>Patient</Text>
+                  <Text style={styles.demoHint}>Tap to fill</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => fillDemoAccount(1)}
+                  style={({ pressed }) => [
+                    styles.demoCard,
+                    pressed && styles.buttonPressed,
+                  ]}
+                >
+                  <Ionicons
+                    name="medical-outline"
+                    size={20}
+                    color={COLORS.primary}
+                  />
+                  <Text style={styles.demoRole}>Doctor</Text>
+                  <Text style={styles.demoHint}>Tap to fill</Text>
+                </Pressable>
+              </View>
             </View>
 
             <View style={styles.signupRow}>
@@ -303,6 +370,11 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     paddingTop: 12,
   },
+  errorText: {
+    color: "#C2413B",
+    fontSize: 13,
+    marginTop: 10,
+  },
   forgotText: {
     color: COLORS.primaryDark,
     fontSize: 13,
@@ -333,6 +405,41 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: 0.7,
     marginRight: 9,
+  },
+  demoSection: {
+    marginTop: 22,
+  },
+  demoTitle: {
+    color: COLORS.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    marginBottom: 8,
+    textAlign: "center",
+    textTransform: "uppercase",
+  },
+  demoRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  demoCard: {
+    alignItems: "center",
+    backgroundColor: COLORS.mintLight,
+    borderColor: COLORS.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    flex: 1,
+    paddingVertical: 11,
+  },
+  demoRole: {
+    color: COLORS.text,
+    fontSize: 13,
+    fontWeight: "800",
+    marginTop: 3,
+  },
+  demoHint: {
+    color: COLORS.muted,
+    fontSize: 11,
+    marginTop: 1,
   },
   signupRow: {
     alignItems: "center",

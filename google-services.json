@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "33777765817",
+    "project_id": "smart-healhty",
+    "storage_bucket": "smart-healhty.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:33777765817:android:11d06d34e9209ddfbdba68",
+        "android_client_info": {
+          "package_name": "com.smarthealthy.smarthealty"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCpzolgi8h1tMLCU7C0ZDZ-n8b7iaJ3ddk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
