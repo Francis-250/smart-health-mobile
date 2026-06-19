@@ -14,12 +14,13 @@ export default function PatientAppointments() {
           title="Test Notification"
           onPress={() =>
             sendLocalNotification(
-              "Test Notification 🔔",
+              "Test Notification",
               "Notification is working!",
               { screen: "appointments" },
             )
           }
         />
+        <Text selectable>{expoPushToken ?? "Getting token..."}</Text>
       </View>
     </SafeAreaView>
   );

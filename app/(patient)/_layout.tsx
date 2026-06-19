@@ -10,19 +10,9 @@ type TabIconProps = {
   size: number;
 };
 
-function TabIcon({
-  color,
-  focused,
-  name,
-  selectedName,
-  size,
-}: TabIconProps) {
+function TabIcon({ color, focused, name, selectedName, size }: TabIconProps) {
   return (
-    <Ionicons
-      color={color}
-      name={focused ? selectedName : name}
-      size={size}
-    />
+    <Ionicons color={color} name={focused ? selectedName : name} size={size} />
   );
 }
 
@@ -52,11 +42,7 @@ export default function PatientTabsLayout() {
         options={{
           title: "Home",
           tabBarIcon: (props) => (
-            <TabIcon
-              {...props}
-              name="home-outline"
-              selectedName="home"
-            />
+            <TabIcon {...props} name="home-outline" selectedName="home" />
           ),
         }}
       />
@@ -74,27 +60,23 @@ export default function PatientTabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="doctors"
+        name="first-aid"
         options={{
-          title: "Doctors",
+          title: "First Aid",
           tabBarIcon: (props) => (
-            <TabIcon
-              {...props}
-              name="medical-outline"
-              selectedName="medical"
-            />
+            <TabIcon {...props} name="book-outline" selectedName="book" />
           ),
         }}
       />
       <Tabs.Screen
-        name="appointments"
+        name="hospitals"
         options={{
-          title: "Visits",
+          title: "Hospitals",
           tabBarIcon: (props) => (
             <TabIcon
               {...props}
-              name="calendar-outline"
-              selectedName="calendar"
+              name="location-outline"
+              selectedName="location"
             />
           ),
         }}
@@ -104,14 +86,12 @@ export default function PatientTabsLayout() {
         options={{
           title: "Profile",
           tabBarIcon: (props) => (
-            <TabIcon
-              {...props}
-              name="person-outline"
-              selectedName="person"
-            />
+            <TabIcon {...props} name="person-outline" selectedName="person" />
           ),
         }}
       />
+      <Tabs.Screen name="doctors" options={{ href: null }} />
+      <Tabs.Screen name="appointments" options={{ href: null }} />
     </Tabs>
   );
 }

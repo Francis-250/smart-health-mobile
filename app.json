@@ -41,9 +41,16 @@
       ],
       "expo-notifications",
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow Smart Health to use your location for nearby hospitals and SOS messages."
+        }
+      ],
+      [
         "expo-image-picker",
         {
           "photosPermission": "Allow Smart Health to access a photo you choose to share with the health assistant.",
+          "cameraPermission": "Allow Smart Health to photograph an injury for a first aid assessment.",
           "microphonePermission": false
         }
       ],
