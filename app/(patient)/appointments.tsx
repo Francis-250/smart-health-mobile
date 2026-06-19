@@ -1,11 +1,26 @@
-import { RoleScreen } from "@/components/role-screen";
+import { Button, Text, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+
+import { useNotifications } from "@/hooks/useNotifications";
 
 export default function PatientAppointments() {
+  const { sendLocalNotification, expoPushToken } = useNotifications();
+
   return (
-    <RoleScreen
-      description="Book a visit and keep track of your upcoming appointments."
-      icon="calendar"
-      title="My Appointments"
-    />
+    <SafeAreaView style={{ flex: 1 }}>
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <Text>Patient Appointments</Text>
+        <Button
+          title="Test Notification"
+          onPress={() =>
+            sendLocalNotification(
+              "Test Notification 🔔",
+              "Notification is working!",
+              { screen: "appointments" },
+            )
+          }
+        />
+      </View>
+    </SafeAreaView>
   );
 }
