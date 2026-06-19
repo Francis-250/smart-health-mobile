@@ -7,6 +7,7 @@ import {
   AuthFormScreen,
   sharedStyles,
 } from "@/components/auth-form";
+import { useAuthStore } from "@/stores/auth-store";
 
 export default function Register() {
   const [name, setName] = useState("");
@@ -15,8 +16,13 @@ export default function Register() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const {
+    error: apiError,
+    loading,
+    register: registerAccount,
+  } = useAuthStore();
 
-  const register = () => {
+  const register = async () => {
     if (!name.trim() || !email.trim() || !password || !confirmPassword) {
       setError("Please complete all fields.");
       return;
@@ -26,11 +32,14 @@ export default function Register() {
       return;
     }
 
-    setError("");
-    router.push({
-      pathname: "/(auth)/verify-otp",
-      params: { email: email.trim(), flow: "register" },
+    const parts = name.trim().split(/\s+/);
+    const user = await registerAccount({
+      email: email.trim().toLowerCase(),
+      password,
+      firstName: parts[0],
+      lastName: parts.slice(1).join(" ") || parts[0],
     });
+    if (user) router.replace("/(patient)");
   };
 
   return (
@@ -83,16 +92,21 @@ export default function Register() {
         value={confirmPassword}
       />
 
-      {error ? <Text style={sharedStyles.error}>{error}</Text> : null}
+      {error || apiError ? (
+        <Text style={sharedStyles.error}>{error || apiError}</Text>
+      ) : null}
 
       <Pressable
+        disabled={loading}
         onPress={register}
         style={({ pressed }) => [
           sharedStyles.button,
           pressed && sharedStyles.buttonPressed,
         ]}
       >
-        <Text style={sharedStyles.buttonText}>REGISTER</Text>
+        <Text style={sharedStyles.buttonText}>
+          {loading ? "CREATING..." : "REGISTER"}
+        </Text>
         <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
       </Pressable>
     </AuthFormScreen>

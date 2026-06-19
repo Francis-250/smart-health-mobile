@@ -14,6 +14,7 @@ import {
 import MapView, { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
+import { api } from "@/lib/api";
 
 type Hospital = {
   id: string;
@@ -23,6 +24,28 @@ type Hospital = {
   longitude: number;
   phone?: string;
   distanceMeters?: number;
+};
+
+type GooglePlace = {
+  id?: string;
+  displayName?: { text?: string };
+  formattedAddress?: string;
+  location?: { latitude?: number; longitude?: number };
+  nationalPhoneNumber?: string;
+};
+
+type OverpassElement = {
+  id: number;
+  lat?: number;
+  lon?: number;
+  center?: { lat?: number; lon?: number };
+  tags?: {
+    name?: string;
+    "name:en"?: string;
+    "addr:full"?: string;
+    "addr:street"?: string;
+    phone?: string;
+  };
 };
 
 const KIGALI_REGION: Region = {
@@ -60,77 +83,35 @@ export default function Hospitals() {
       };
       setRegion(nextRegion);
 
+      let nearbyHospitals = await searchBackendHospitals(
+        nextRegion.latitude,
+        nextRegion.longitude,
+      );
       const apiKey = String(
         Constants.expoConfig?.extra?.googleMapsApiKey ?? "",
       );
-      if (!apiKey) throw new Error("Google Maps API key is not configured.");
-
-      const response = await fetch(
-        "https://places.googleapis.com/v1/places:searchNearby",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Goog-Api-Key": apiKey,
-            "X-Goog-FieldMask":
-              "places.id,places.displayName,places.formattedAddress,places.location,places.nationalPhoneNumber",
-          },
-          body: JSON.stringify({
-            includedTypes: ["hospital"],
-            maxResultCount: 10,
-            rankPreference: "DISTANCE",
-            locationRestriction: {
-              circle: {
-                center: {
-                  latitude: nextRegion.latitude,
-                  longitude: nextRegion.longitude,
-                },
-                radius: 20000,
-              },
-            },
-          }),
-        },
-      );
-      if (!response.ok) throw new Error("Hospital service is unavailable.");
-      const data = (await response.json()) as {
-        places?: {
-          id?: string;
-          displayName?: { text?: string };
-          formattedAddress?: string;
-          location?: { latitude?: number; longitude?: number };
-          nationalPhoneNumber?: string;
-        }[];
-      };
-      const nearbyHospitals = (data.places ?? [])
-        .filter(
-          (place) =>
-            typeof place.location?.latitude === "number" &&
-            typeof place.location?.longitude === "number",
-        )
-        .map((place) => {
-          const latitude = place.location?.latitude ?? nextRegion.latitude;
-          const longitude = place.location?.longitude ?? nextRegion.longitude;
-          return {
-            id: place.id ?? `${latitude}-${longitude}`,
-            name: place.displayName?.text ?? "Hospital",
-            address: place.formattedAddress ?? "Address unavailable",
-            latitude,
-            longitude,
-            phone: place.nationalPhoneNumber,
-            distanceMeters: distanceInMeters(
-              nextRegion.latitude,
-              nextRegion.longitude,
-              latitude,
-              longitude,
-            ),
-          };
-        });
+      if (!nearbyHospitals.length && apiKey) {
+        nearbyHospitals = await searchGoogleHospitals(
+          apiKey,
+          nextRegion.latitude,
+          nextRegion.longitude,
+        );
+      }
+      if (!nearbyHospitals.length) {
+        nearbyHospitals = await searchOpenStreetMapHospitals(
+          nextRegion.latitude,
+          nextRegion.longitude,
+        );
+      }
       setHospitals(nearbyHospitals);
-    } catch (caughtError) {
+      if (!nearbyHospitals.length) {
+        setError(
+          "No hospital list was returned. Use Google Maps to search around your current location.",
+        );
+      }
+    } catch {
       setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : "Unable to load nearby hospitals.",
+        "Live hospital results could not load. You can still search and navigate with Google Maps.",
       );
     } finally {
       setLoading(false);
@@ -236,6 +217,156 @@ export default function Hospitals() {
       </View>
     </SafeAreaView>
   );
+}
+
+async function searchBackendHospitals(
+  latitude: number,
+  longitude: number,
+): Promise<Hospital[]> {
+  try {
+    const { data } = await api.get<
+      {
+        id: string;
+        name: string;
+        address: string;
+        latitude: number;
+        longitude: number;
+        phoneNumber?: string;
+        distanceKm?: number;
+      }[]
+    >("/hospitals/nearby", {
+      params: { lat: latitude, lng: longitude, limit: 10 },
+    });
+    return data.map((hospital) => ({
+      id: hospital.id,
+      name: hospital.name,
+      address: hospital.address,
+      latitude: hospital.latitude,
+      longitude: hospital.longitude,
+      phone: hospital.phoneNumber,
+      distanceMeters:
+        typeof hospital.distanceKm === "number"
+          ? hospital.distanceKm * 1000
+          : undefined,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+async function searchGoogleHospitals(
+  apiKey: string,
+  latitude: number,
+  longitude: number,
+): Promise<Hospital[]> {
+  try {
+    const response = await fetch(
+      "https://places.googleapis.com/v1/places:searchNearby",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Goog-Api-Key": apiKey,
+          "X-Goog-FieldMask":
+            "places.id,places.displayName,places.formattedAddress,places.location,places.nationalPhoneNumber",
+        },
+        body: JSON.stringify({
+          includedTypes: ["hospital"],
+          maxResultCount: 10,
+          rankPreference: "DISTANCE",
+          locationRestriction: {
+            circle: {
+              center: { latitude, longitude },
+              radius: 20000,
+            },
+          },
+        }),
+      },
+    );
+    if (!response.ok) return [];
+    const data = (await response.json()) as { places?: GooglePlace[] };
+
+    return (data.places ?? [])
+      .filter(
+        (place) =>
+          typeof place.location?.latitude === "number" &&
+          typeof place.location?.longitude === "number",
+      )
+      .map((place) => {
+        const hospitalLatitude = place.location?.latitude ?? latitude;
+        const hospitalLongitude = place.location?.longitude ?? longitude;
+        return {
+          id: place.id ?? `${hospitalLatitude}-${hospitalLongitude}`,
+          name: place.displayName?.text ?? "Hospital",
+          address: place.formattedAddress ?? "Address unavailable",
+          latitude: hospitalLatitude,
+          longitude: hospitalLongitude,
+          phone: place.nationalPhoneNumber,
+          distanceMeters: distanceInMeters(
+            latitude,
+            longitude,
+            hospitalLatitude,
+            hospitalLongitude,
+          ),
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
+async function searchOpenStreetMapHospitals(
+  latitude: number,
+  longitude: number,
+): Promise<Hospital[]> {
+  try {
+    const query = `[out:json][timeout:15];(node["amenity"="hospital"](around:20000,${latitude},${longitude});way["amenity"="hospital"](around:20000,${latitude},${longitude});relation["amenity"="hospital"](around:20000,${latitude},${longitude}););out center tags;`;
+    const response = await fetch(
+      `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`,
+    );
+    if (!response.ok) return [];
+    const data = (await response.json()) as { elements?: OverpassElement[] };
+
+    return (data.elements ?? [])
+      .reduce<Hospital[]>((hospitals, element) => {
+        const hospitalLatitude = element.lat ?? element.center?.lat;
+        const hospitalLongitude = element.lon ?? element.center?.lon;
+        if (
+          typeof hospitalLatitude !== "number" ||
+          typeof hospitalLongitude !== "number"
+        ) {
+          return hospitals;
+        }
+        hospitals.push({
+          id: `osm-${element.id}`,
+          name:
+            element.tags?.["name:en"] ??
+            element.tags?.name ??
+            "Nearby hospital",
+          address:
+            element.tags?.["addr:full"] ??
+            element.tags?.["addr:street"] ??
+            "Open in Maps for address",
+          latitude: hospitalLatitude,
+          longitude: hospitalLongitude,
+          phone: element.tags?.phone,
+          distanceMeters: distanceInMeters(
+            latitude,
+            longitude,
+            hospitalLatitude,
+            hospitalLongitude,
+          ),
+        });
+        return hospitals;
+      }, [])
+      .sort(
+        (first, second) =>
+          (first.distanceMeters ?? 0) - (second.distanceMeters ?? 0),
+      )
+      .slice(0, 10);
+  } catch {
+    return [];
+  }
 }
 
 function distanceInMeters(

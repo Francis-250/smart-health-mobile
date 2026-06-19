@@ -1,6 +1,8 @@
-import { create } from "zustand";
+import * as FileSystem from "expo-file-system/legacy";
 import * as SecureStore from "expo-secure-store";
+import { create } from "zustand";
 import { createJSONStorage, persist, StateStorage } from "zustand/middleware";
+import { api, getApiError } from "@/lib/api";
 
 export type RiskLevel = "low" | "moderate" | "high" | "critical";
 
@@ -22,150 +24,79 @@ export type AssistantMessage = {
   assessment?: HealthAssessment;
 };
 
+type BackendRiskLevel = "LOW" | "MEDIUM" | "HIGH" | "EMERGENCY";
+
+type ChatResponse = {
+  conversationId: string;
+  message: {
+    id: string;
+    content: string;
+    createdAt: string;
+  };
+  assessment: {
+    createdAt: string;
+    recommendation: string;
+    warnings: string[];
+    riskScore: number;
+    riskLevel: BackendRiskLevel;
+    emergencyReason?: string | null;
+  };
+};
+
 const INITIAL_MESSAGE: AssistantMessage = {
   id: "welcome",
   role: "assistant",
-  text: "Describe your symptoms by text or voice, or upload an injury photo. I’ll provide a preliminary risk check and safe next steps.",
+  text: "Tell me what happened, describe your symptoms, or attach an injury photo. I’ll provide immediate first-aid guidance.",
 };
 
-function createAssessment(
-  message: string,
-  hasImage: boolean,
-): HealthAssessment {
-  const text = message.toLowerCase();
-  const createdAt = new Date().toISOString();
-  const isCritical = [
-    "chest pain",
-    "can't breathe",
-    "cannot breathe",
-    "unconscious",
-    "not breathing",
-    "heavy bleeding",
-    "seizure",
-    "stroke",
-  ].some((term) => text.includes(term));
+function mapRiskLevel(level: BackendRiskLevel): RiskLevel {
+  if (level === "EMERGENCY") return "critical";
+  if (level === "HIGH") return "high";
+  if (level === "MEDIUM") return "moderate";
+  return "low";
+}
 
-  if (isCritical) {
-    return {
-      createdAt,
-      riskScore: 95,
-      riskLevel: "critical",
-      summary:
-        "Your description contains emergency warning signs. Get emergency help now.",
-      firstAidSteps: [
-        "Call your local emergency service immediately.",
-        "Stay with the person and keep them as still and comfortable as possible.",
-        "Do not give food, drink, or medication unless a professional instructs you.",
-      ],
-      warningSigns: [
-        "Breathing difficulty",
-        "Loss of consciousness",
-        "Severe or uncontrolled bleeding",
-      ],
-      needsNearbyCare: true,
-    };
-  }
+function extractSteps(reply: string, recommendation: string) {
+  const numberedSteps = reply
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => /^\d+[.)]\s+/.test(line))
+    .map((line) => line.replace(/^\d+[.)]\s+/, ""));
 
-  if (
-    hasImage ||
-    ["wound", "cut", "burn", "injury", "rash", "swelling"].some((term) =>
-      text.includes(term),
-    )
-  ) {
-    return {
-      createdAt,
-      riskScore: hasImage ? 58 : 48,
-      riskLevel: "moderate",
-      summary:
-        "This injury needs monitoring. A photo alone cannot confirm its severity or cause.",
-      firstAidSteps: [
-        "Move away from danger and wash your hands before touching the area.",
-        "For bleeding, apply steady pressure with a clean cloth.",
-        "Keep the area clean and loosely covered; do not apply unknown remedies.",
-      ],
-      warningSigns: [
-        "Bleeding that does not stop",
-        "Increasing pain, redness, heat, pus, or fever",
-        "Deep wound, loss of feeling, or reduced movement",
-      ],
-      needsNearbyCare: true,
-    };
-  }
+  return numberedSteps.length
+    ? numberedSteps
+    : recommendation
+        .split(/\n|(?<=[.!?])\s+/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .slice(0, 4);
+}
 
-  if (
-    ["high fever", "vomiting", "severe pain", "dizzy", "faint"].some((term) =>
-      text.includes(term),
-    )
-  ) {
-    return {
-      createdAt,
-      riskScore: 72,
-      riskLevel: "high",
-      summary:
-        "Your symptoms may need prompt in-person medical assessment today.",
-      firstAidSteps: [
-        "Rest in a safe place and ask someone to stay nearby.",
-        "Take small sips of water if you are awake and able to swallow.",
-        "Avoid driving yourself if you feel faint, confused, or very weak.",
-      ],
-      warningSigns: [
-        "Symptoms becoming rapidly worse",
-        "Confusion, fainting, or difficulty staying awake",
-        "Unable to keep fluids down",
-      ],
-      needsNearbyCare: true,
-    };
-  }
-
-  if (
-    ["fever", "headache", "stomach", "cough", "pain"].some((term) =>
-      text.includes(term),
-    )
-  ) {
-    return {
-      createdAt,
-      riskScore: 35,
-      riskLevel: "moderate",
-      summary:
-        "No immediate emergency sign was detected, but monitor your symptoms closely.",
-      firstAidSteps: [
-        "Rest and drink fluids if you can safely do so.",
-        "Track when symptoms started and whether they are getting worse.",
-        "Contact a clinician if symptoms persist or concern you.",
-      ],
-      warningSigns: [
-        "New breathing difficulty",
-        "Severe or rapidly worsening pain",
-        "Confusion, fainting, or dehydration",
-      ],
-      needsNearbyCare: false,
-    };
-  }
-
-  return {
-    createdAt,
-    riskScore: 18,
-    riskLevel: "low",
-    summary:
-      "I need more detail to estimate risk. This preliminary score is not a diagnosis.",
-    firstAidSteps: [
-      "Rest and avoid activities that make symptoms worse.",
-      "Describe when this started, severity from 1–10, and other symptoms.",
-      "Contact a clinician if symptoms continue or worsen.",
-    ],
-    warningSigns: [
-      "Breathing difficulty",
-      "Loss of consciousness",
-      "Severe pain or bleeding",
-    ],
-    needsNearbyCare: false,
-  };
+async function imageToDataUrl(imageUri: string) {
+  const extension = imageUri.split(".").pop()?.toLowerCase();
+  const mime =
+    extension === "png"
+      ? "image/png"
+      : extension === "webp"
+        ? "image/webp"
+        : "image/jpeg";
+  const base64 = await FileSystem.readAsStringAsync(imageUri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  return `data:${mime};base64,${base64}`;
 }
 
 type HealthAssistantState = {
   messages: AssistantMessage[];
-  sendMessage: (text: string, imageUri?: string) => HealthAssessment;
+  conversationId: string | null;
+  loading: boolean;
+  error: string | null;
+  sendMessage: (
+    text: string,
+    imageUri?: string,
+  ) => Promise<HealthAssessment | null>;
   clearConversation: () => void;
+  clearError: () => void;
 };
 
 const secureStorage: StateStorage = {
@@ -176,38 +107,85 @@ const secureStorage: StateStorage = {
 
 export const useHealthAssistantStore = create<HealthAssistantState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       messages: [INITIAL_MESSAGE],
-      sendMessage: (text, imageUri) => {
-        const cleanText = text.trim();
-        const timestamp = Date.now();
-        const assessment = createAssessment(cleanText, Boolean(imageUri));
+      conversationId: null,
+      loading: false,
+      error: null,
+      sendMessage: async (text, imageUri) => {
+        const cleanText = text.trim() || "Please assess this injury image.";
         const userMessage: AssistantMessage = {
-          id: `user-${timestamp}`,
+          id: `local-${Date.now()}`,
           role: "user",
-          text:
-            cleanText || "I uploaded an injury photo for a preliminary review.",
+          text: cleanText,
           imageUri,
         };
-        const assistantMessage: AssistantMessage = {
-          id: `assistant-${timestamp}`,
-          role: "assistant",
-          text: assessment.summary,
-          assessment,
-        };
-
         set((state) => ({
-          messages: [...state.messages, userMessage, assistantMessage].slice(
-            -21,
-          ),
+          error: null,
+          loading: true,
+          messages: [...state.messages, userMessage],
         }));
-        return assessment;
+
+        try {
+          const imageUrl = imageUri
+            ? await imageToDataUrl(imageUri)
+            : undefined;
+          const { data } = await api.post<ChatResponse>("/ai/chat", {
+            conversationId: get().conversationId ?? undefined,
+            message: cleanText,
+            imageUrl,
+          });
+          const riskLevel = mapRiskLevel(data.assessment.riskLevel);
+          const assessment: HealthAssessment = {
+            createdAt: data.assessment.createdAt,
+            riskScore: data.assessment.riskScore,
+            riskLevel,
+            summary: data.message.content,
+            firstAidSteps: extractSteps(
+              data.message.content,
+              data.assessment.recommendation,
+            ),
+            warningSigns: data.assessment.warnings,
+            needsNearbyCare:
+              riskLevel === "high" || riskLevel === "critical",
+          };
+          const assistantMessage: AssistantMessage = {
+            id: data.message.id,
+            role: "assistant",
+            text: data.message.content,
+            assessment,
+          };
+
+          set((state) => ({
+            conversationId: data.conversationId,
+            error: null,
+            loading: false,
+            messages: [...state.messages, assistantMessage].slice(-31),
+          }));
+          return assessment;
+        } catch (requestError) {
+          set({
+            error: getApiError(requestError),
+            loading: false,
+          });
+          return null;
+        }
       },
-      clearConversation: () => set({ messages: [INITIAL_MESSAGE] }),
+      clearConversation: () =>
+        set({
+          messages: [INITIAL_MESSAGE],
+          conversationId: null,
+          error: null,
+        }),
+      clearError: () => set({ error: null }),
     }),
     {
       name: "smart-health-assessments",
       storage: createJSONStorage(() => secureStorage),
+      partialize: (state) => ({
+        messages: state.messages,
+        conversationId: state.conversationId,
+      }),
     },
   ),
 );

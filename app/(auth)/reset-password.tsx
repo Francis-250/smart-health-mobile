@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
 import { Pressable, Text, TextInput, View } from "react-native";
 import {
@@ -7,16 +7,22 @@ import {
   AuthFormScreen,
   sharedStyles,
 } from "@/components/auth-form";
+import { api, getApiError } from "@/lib/api";
 
 export default function ResetPassword() {
+  const { email = "", otp = "" } = useLocalSearchParams<{
+    email?: string;
+    otp?: string;
+  }>();
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const resetPassword = () => {
-    if (password.length < 6) {
-      setError("Password must contain at least 6 characters.");
+  const resetPassword = async () => {
+    if (password.length < 8) {
+      setError("Password must contain at least 8 characters.");
       return;
     }
     if (password !== confirmPassword) {
@@ -25,7 +31,19 @@ export default function ResetPassword() {
     }
 
     setError("");
-    router.replace("/(auth)/login");
+    setLoading(true);
+    try {
+      await api.post("/auth/reset-password", {
+        email,
+        otp,
+        newPassword: password,
+      });
+      router.replace("/(auth)/login");
+    } catch (requestError) {
+      setError(getApiError(requestError));
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -56,13 +74,16 @@ export default function ResetPassword() {
       {error ? <Text style={sharedStyles.error}>{error}</Text> : null}
 
       <Pressable
+        disabled={loading}
         onPress={resetPassword}
         style={({ pressed }) => [
           sharedStyles.button,
           pressed && sharedStyles.buttonPressed,
         ]}
       >
-        <Text style={sharedStyles.buttonText}>RESET PASSWORD</Text>
+        <Text style={sharedStyles.buttonText}>
+          {loading ? "RESETTING..." : "RESET PASSWORD"}
+        </Text>
         <Ionicons name="checkmark" size={21} color="#FFFFFF" />
       </Pressable>
     </AuthFormScreen>

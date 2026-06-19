@@ -13,7 +13,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { DUMMY_USERS, useAuthStore } from "@/stores/auth-store";
+import { useAuthStore } from "@/stores/auth-store";
 
 const COLORS = {
   background: "#F7FBF9",
@@ -32,24 +32,17 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const { clearError, error, login } = useAuthStore();
+  const { clearError, error, loading, login } = useAuthStore();
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     Keyboard.dismiss();
-    const user = login(email, password);
+    const user = await login(email, password);
 
     if (user?.role === "expert") {
       router.replace("/(expert)");
     } else if (user?.role === "patient") {
       router.replace("/(patient)");
     }
-  };
-
-  const fillDemoAccount = (index: number) => {
-    const demoUser = DUMMY_USERS[index];
-    setEmail(demoUser.email);
-    setPassword(demoUser.password);
-    clearError();
   };
 
   return (
@@ -168,51 +161,19 @@ export default function Login() {
 
               <Pressable
                 accessibilityRole="button"
+                disabled={loading}
                 onPress={handleLogin}
                 style={({ pressed }) => [
                   styles.loginButton,
+                  loading && styles.loginButtonDisabled,
                   pressed && styles.loginButtonPressed,
                 ]}
               >
-                <Text style={styles.loginButtonText}>LOGIN</Text>
+                <Text style={styles.loginButtonText}>
+                  {loading ? "SIGNING IN..." : "LOGIN"}
+                </Text>
                 <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
               </Pressable>
-            </View>
-
-            <View style={styles.demoSection}>
-              <Text style={styles.demoTitle}>Demo accounts</Text>
-              <View style={styles.demoRow}>
-                <Pressable
-                  onPress={() => fillDemoAccount(0)}
-                  style={({ pressed }) => [
-                    styles.demoCard,
-                    pressed && styles.buttonPressed,
-                  ]}
-                >
-                  <Ionicons
-                    name="person-outline"
-                    size={20}
-                    color={COLORS.primary}
-                  />
-                  <Text style={styles.demoRole}>Patient</Text>
-                  <Text style={styles.demoHint}>Tap to fill</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => fillDemoAccount(1)}
-                  style={({ pressed }) => [
-                    styles.demoCard,
-                    pressed && styles.buttonPressed,
-                  ]}
-                >
-                  <Ionicons
-                    name="medical-outline"
-                    size={20}
-                    color={COLORS.primary}
-                  />
-                  <Text style={styles.demoRole}>Doctor</Text>
-                  <Text style={styles.demoHint}>Tap to fill</Text>
-                </Pressable>
-              </View>
             </View>
 
             <View style={styles.signupRow}>
@@ -399,47 +360,15 @@ const styles = StyleSheet.create({
     opacity: 0.86,
     transform: [{ scale: 0.99 }],
   },
+  loginButtonDisabled: {
+    opacity: 0.6,
+  },
   loginButtonText: {
     color: "#FFFFFF",
     fontSize: 15,
     fontWeight: "800",
     letterSpacing: 0.7,
     marginRight: 9,
-  },
-  demoSection: {
-    marginTop: 22,
-  },
-  demoTitle: {
-    color: COLORS.muted,
-    fontSize: 12,
-    fontWeight: "700",
-    marginBottom: 8,
-    textAlign: "center",
-    textTransform: "uppercase",
-  },
-  demoRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  demoCard: {
-    alignItems: "center",
-    backgroundColor: COLORS.mintLight,
-    borderColor: COLORS.border,
-    borderRadius: 8,
-    borderWidth: 1,
-    flex: 1,
-    paddingVertical: 11,
-  },
-  demoRole: {
-    color: COLORS.text,
-    fontSize: 13,
-    fontWeight: "800",
-    marginTop: 3,
-  },
-  demoHint: {
-    color: COLORS.muted,
-    fontSize: 11,
-    marginTop: 1,
   },
   signupRow: {
     alignItems: "center",

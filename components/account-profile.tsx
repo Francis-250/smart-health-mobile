@@ -27,8 +27,8 @@ export function AccountProfile() {
   const [conditions, setConditions] = useState(medicalCard.conditions);
   const [medications, setMedications] = useState(medicalCard.medications);
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     router.replace("/(auth)/login");
   };
 

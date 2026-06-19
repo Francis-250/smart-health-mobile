@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -14,6 +14,7 @@ import {
   FIRST_AID_TIPS,
   FirstAidTip,
 } from "@/constants/first-aid-tips";
+import { api } from "@/lib/api";
 
 const LEVEL_COLORS = {
   Low: COLORS.SUCCESS,
@@ -25,18 +26,57 @@ const LEVEL_COLORS = {
 export default function FirstAidLibrary() {
   const [query, setQuery] = useState("");
   const [selectedTip, setSelectedTip] = useState<FirstAidTip | null>(null);
+  const [remoteTips, setRemoteTips] = useState<FirstAidTip[]>([]);
+
+  useEffect(() => {
+    api
+      .get<
+        {
+          id: string;
+          title: string;
+          category: string;
+          emergencyLevel: "LOW" | "MEDIUM" | "HIGH" | "EMERGENCY";
+          description: string;
+          steps: string[];
+          warnings: string[];
+        }[]
+      >("/first-aid-tips")
+      .then(({ data }) =>
+        setRemoteTips(
+          data.map((tip) => ({
+            id: tip.id,
+            title: tip.title,
+            category: tip.category,
+            emergencyLevel:
+              tip.emergencyLevel === "EMERGENCY"
+                ? "Emergency"
+                : tip.emergencyLevel === "HIGH"
+                  ? "High"
+                  : tip.emergencyLevel === "MEDIUM"
+                    ? "Medium"
+                    : "Low",
+            description: tip.description,
+            steps: tip.steps,
+            warnings: tip.warnings,
+            keywords: [],
+          })),
+        ),
+      )
+      .catch(() => setRemoteTips([]));
+  }, []);
 
   const tips = useMemo(() => {
+    const source = remoteTips.length ? remoteTips : FIRST_AID_TIPS;
     const term = query.trim().toLowerCase();
-    if (!term) return FIRST_AID_TIPS;
+    if (!term) return source;
 
-    return FIRST_AID_TIPS.filter((tip) =>
+    return source.filter((tip) =>
       [tip.title, tip.category, tip.description, ...tip.keywords]
         .join(" ")
         .toLowerCase()
         .includes(term),
     );
-  }, [query]);
+  }, [query, remoteTips]);
 
   if (selectedTip) {
     return (

@@ -3,12 +3,14 @@ import { requireOptionalNativeModule } from "expo";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import * as Speech from "expo-speech";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
+  ActivityIndicator,
   Image,
   KeyboardAvoidingView,
   Linking,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -26,23 +28,26 @@ import {
 } from "@/stores/health-assistant-store";
 import { useEmergencyStore } from "@/stores/emergency-store";
 
-type SpeechResultEvent = {
-  isFinal: boolean;
-  results: { transcript?: string }[];
+type SpeechEvent = {
+  error?: string;
+  isFinal?: boolean;
+  message?: string;
+  results?: { transcript?: string }[];
 };
 
-type SpeechErrorEvent = {
-  error?: string;
-  message?: string;
+type SpeechPermission = {
+  canAskAgain: boolean;
+  granted: boolean;
 };
 
 type SpeechRecognitionModule = {
   addListener: (
     event: "start" | "end" | "result" | "error",
-    listener: (event: SpeechResultEvent & SpeechErrorEvent) => void,
+    listener: (event: SpeechEvent) => void,
   ) => { remove: () => void };
+  getPermissionsAsync: () => Promise<SpeechPermission>;
   isRecognitionAvailable: () => boolean;
-  requestPermissionsAsync: () => Promise<{ granted: boolean }>;
+  requestPermissionsAsync: () => Promise<SpeechPermission>;
   start: (options: {
     continuous: boolean;
     interimResults: boolean;
@@ -56,317 +61,350 @@ const speechRecognition =
     "ExpoSpeechRecognition",
   );
 
+const RISK_COLORS: Record<RiskLevel, string> = {
+  low: COLORS.SUCCESS,
+  moderate: COLORS.WARNING,
+  high: "#C35A00",
+  critical: COLORS.ERROR,
+};
+
 export default function PatientAssistant() {
   const [message, setMessage] = useState("");
-  const [imageUri, setImageUri] = useState<string | undefined>();
+  const [imageUri, setImageUri] = useState<string>();
   const [isListening, setIsListening] = useState(false);
+  const [permission, setPermission] = useState<SpeechPermission | null>(null);
+  const [showPermission, setShowPermission] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
   const lastTranscript = useRef("");
-  const { messages, sendMessage } = useHealthAssistantStore();
+  const { clearConversation, clearError, error, loading, messages, sendMessage } =
+    useHealthAssistantStore();
   const contact = useEmergencyStore((state) => state.contact);
 
-  useEffect(() => {
-    if (!speechRecognition) return;
+  const sendAndSpeak = useCallback(
+    async (text: string, image?: string) => {
+      const assessment = await sendMessage(text, image);
+      setMessage("");
+      setImageUri(undefined);
+      if (!assessment) return;
+      Speech.stop();
+      Speech.speak(assessment.summary, { language: "en-US", rate: 0.92 });
+    },
+    [sendMessage],
+  );
 
-    const startSubscription = speechRecognition.addListener("start", () =>
-      setIsListening(true),
-    );
-    const endSubscription = speechRecognition.addListener("end", () =>
-      setIsListening(false),
-    );
-    const resultSubscription = speechRecognition.addListener(
-      "result",
-      (event) => {
+  useEffect(() => {
+    if (!speechRecognition) {
+      const timer = setTimeout(() => setShowPermission(true), 450);
+      return () => clearTimeout(timer);
+    }
+
+    speechRecognition.getPermissionsAsync().then((currentPermission) => {
+      setPermission(currentPermission);
+      if (!currentPermission.granted) setShowPermission(true);
+    });
+    const subscriptions = [
+      speechRecognition.addListener("start", () => setIsListening(true)),
+      speechRecognition.addListener("end", () => setIsListening(false)),
+      speechRecognition.addListener("result", (event) => {
         const transcript = event.results?.[0]?.transcript?.trim() ?? "";
         if (!transcript) return;
         setMessage(transcript);
 
         if (event.isFinal && transcript !== lastTranscript.current) {
           lastTranscript.current = transcript;
-          const assessment = sendMessage(transcript);
-          setMessage("");
-          Speech.speak(assessment.summary, {
-            language: "en-US",
-            rate: 0.92,
-          });
+          sendAndSpeak(transcript);
         }
-      },
-    );
-    const errorSubscription = speechRecognition.addListener(
-      "error",
-      (event) => {
+      }),
+      speechRecognition.addListener("error", (event) => {
         setIsListening(false);
         if (event.error !== "aborted" && event.error !== "no-speech") {
-          Alert.alert(
-            "Voice recognition error",
-            event.message ?? "Please try again.",
-          );
+          Alert.alert("Voice problem", event.message ?? "Please try again.");
         }
-      },
+      }),
+    ];
+
+    return () => subscriptions.forEach((item) => item.remove());
+  }, [sendAndSpeak]);
+
+  useEffect(() => {
+    requestAnimationFrame(() =>
+      scrollRef.current?.scrollToEnd({ animated: true }),
     );
-
-    return () => {
-      startSubscription.remove();
-      endSubscription.remove();
-      resultSubscription.remove();
-      errorSubscription.remove();
-    };
-  }, [sendMessage]);
-
-  const pickFromLibrary = async () => {
-    const permission =
-      await ImagePicker.requestMediaLibraryPermissionsAsync();
-
-    if (!permission.granted) {
-      Alert.alert(
-        "Photo permission needed",
-        "Allow photo access to attach an image for the health assistant.",
-      );
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      allowsEditing: true,
-      mediaTypes: ["images"],
-      quality: 0.8,
-    });
-
-    if (!result.canceled) {
-      setImageUri(result.assets[0].uri);
-    }
-  };
-
-  const takePhoto = async () => {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert(
-        "Camera permission needed",
-        "Allow camera access to photograph an injury.",
-      );
-      return;
-    }
-
-    const result = await ImagePicker.launchCameraAsync({
-      allowsEditing: true,
-      cameraType: ImagePicker.CameraType.back,
-      quality: 0.8,
-    });
-    if (!result.canceled) setImageUri(result.assets[0].uri);
-  };
-
-  const chooseImageSource = () => {
-    Alert.alert("Add injury image", "Choose an image source.", [
-      { text: "Camera", onPress: takePhoto },
-      { text: "Photo library", onPress: pickFromLibrary },
-      { text: "Cancel", style: "cancel" },
-    ]);
-  };
+  }, [messages.length, imageUri]);
 
   const submit = () => {
     if (!message.trim() && !imageUri) return;
-    const assessment = sendMessage(message, imageUri);
-    Speech.speak(assessment.summary, { language: "en-US", rate: 0.92 });
-    setMessage("");
-    setImageUri(undefined);
+    sendAndSpeak(message, imageUri);
   };
 
-  const getLocation = async () => {
-    const permission = await Location.requestForegroundPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert(
-        "Location permission needed",
-        "Enable location to find nearby hospitals or include your position in an SOS.",
-      );
-      return null;
-    }
-
-    return Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.Balanced,
-    });
-  };
-
-  const openNearbyHospitals = async () => {
-    try {
-      const location = await getLocation();
-      if (!location) return;
-      const { latitude, longitude } = location.coords;
-      const query = encodeURIComponent(
-        `hospitals near ${latitude},${longitude}`,
-      );
-      await Linking.openURL(
-        `https://www.google.com/maps/search/?api=1&query=${query}`,
-      );
-    } catch {
-      Alert.alert(
-        "Unable to open hospitals",
-        "Check your location and internet connection, then try again.",
-      );
-    }
-  };
-
-  const sendSOS = () => {
-    if (!contact.phone.trim()) {
-      Alert.alert(
-        "Add an emergency contact",
-        "Open your Profile tab and save an emergency contact before using SOS.",
-      );
-      return;
-    }
-
-    Alert.alert(
-      "Send SOS?",
-      `This will prepare an emergency message for ${contact.name}. You must confirm sending it in your messaging app.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Continue",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              const location = await getLocation();
-              const locationText = location
-                ? ` My location: https://maps.google.com/?q=${location.coords.latitude},${location.coords.longitude}`
-                : "";
-              const body = encodeURIComponent(
-                `SOS: I may need urgent medical help. Please contact me and emergency services.${locationText}`,
-              );
-              const separator = Platform.OS === "ios" ? "&" : "?";
-              await Linking.openURL(
-                `sms:${contact.phone}${separator}body=${body}`,
-              );
-            } catch {
-              Alert.alert(
-                "SOS could not open",
-                `Call ${contact.name} directly at ${contact.phone}.`,
-              );
-            }
-          },
-        },
-      ],
-    );
-  };
-
-  const toggleVoice = async () => {
-    if (!speechRecognition) {
-      Alert.alert(
-        "Development build required",
-        "Install the Smart Health development build to use live voice recognition.",
-      );
-      return;
-    }
-
-    if (isListening) {
-      speechRecognition.stop();
-      return;
-    }
-
-    if (!speechRecognition.isRecognitionAvailable()) {
-      Alert.alert(
-        "Voice unavailable",
-        "Speech recognition is not available on this device.",
-      );
-      return;
-    }
-    const permission = await speechRecognition.requestPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert(
-        "Microphone permission needed",
-        "Allow microphone access to talk with Smart Health AI.",
-      );
-      return;
-    }
-
+  const beginVoice = () => {
     lastTranscript.current = "";
     Speech.stop();
-    speechRecognition.start({
+    speechRecognition?.start({
       continuous: false,
       interimResults: true,
       lang: "en-US",
     });
   };
 
+  const enableVoice = async () => {
+    if (!speechRecognition) {
+      setShowPermission(false);
+      Alert.alert(
+        "Install the development build",
+        "Live voice recognition is unavailable in Expo Go.",
+      );
+      return;
+    }
+
+    if (permission && !permission.canAskAgain) {
+      await Linking.openSettings();
+      return;
+    }
+
+    const nextPermission = await speechRecognition.requestPermissionsAsync();
+    setPermission(nextPermission);
+    if (nextPermission.granted) {
+      setShowPermission(false);
+      beginVoice();
+    }
+  };
+
+  const toggleVoice = async () => {
+    if (!speechRecognition) {
+      setShowPermission(true);
+      return;
+    }
+    if (isListening) {
+      speechRecognition.stop();
+      return;
+    }
+    if (!speechRecognition.isRecognitionAvailable()) {
+      Alert.alert(
+        "Voice unavailable",
+        "Speech recognition is unavailable on this device.",
+      );
+      return;
+    }
+
+    const currentPermission =
+      permission ?? (await speechRecognition.getPermissionsAsync());
+    setPermission(currentPermission);
+    if (!currentPermission.granted) {
+      setShowPermission(true);
+      return;
+    }
+    beginVoice();
+  };
+
+  const pickImage = async (camera: boolean) => {
+    const access = camera
+      ? await ImagePicker.requestCameraPermissionsAsync()
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!access.granted) {
+      Alert.alert(
+        "Permission needed",
+        `Allow ${camera ? "camera" : "photo"} access to share an injury image.`,
+      );
+      return;
+    }
+
+    const result = camera
+      ? await ImagePicker.launchCameraAsync({
+          allowsEditing: true,
+          cameraType: ImagePicker.CameraType.back,
+          quality: 0.45,
+        })
+      : await ImagePicker.launchImageLibraryAsync({
+          allowsEditing: true,
+          mediaTypes: ["images"],
+          quality: 0.45,
+        });
+    if (!result.canceled) setImageUri(result.assets[0].uri);
+  };
+
+  const chooseImage = () => {
+    Alert.alert("Share an injury image", "Choose where to get the image.", [
+      { text: "Take photo", onPress: () => pickImage(true) },
+      { text: "Choose photo", onPress: () => pickImage(false) },
+      { text: "Cancel", style: "cancel" },
+    ]);
+  };
+
+  const getLocation = async () => {
+    const access = await Location.requestForegroundPermissionsAsync();
+    if (!access.granted) {
+      Alert.alert(
+        "Location needed",
+        "Allow location to find hospitals or include your position in SOS.",
+      );
+      return null;
+    }
+    return Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.Balanced,
+    });
+  };
+
+  const openNearbyHospitals = async () => {
+    const location = await getLocation();
+    if (!location) return;
+    const { latitude, longitude } = location.coords;
+    const query = encodeURIComponent(`hospitals near ${latitude},${longitude}`);
+    await Linking.openURL(
+      `https://www.google.com/maps/search/?api=1&query=${query}`,
+    );
+  };
+
+  const sendSOS = () => {
+    if (!contact.phone.trim()) {
+      Alert.alert(
+        "Emergency contact missing",
+        "Add an emergency contact in Profile before using SOS.",
+      );
+      return;
+    }
+    Alert.alert("Send SOS?", `Prepare an emergency message for ${contact.name}?`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Continue",
+        style: "destructive",
+        onPress: async () => {
+          const location = await getLocation();
+          const mapLink = location
+            ? ` Location: https://maps.google.com/?q=${location.coords.latitude},${location.coords.longitude}`
+            : "";
+          const body = encodeURIComponent(
+            `SOS: I may need urgent medical help. Please contact me.${mapLink}`,
+          );
+          const separator = Platform.OS === "ios" ? "&" : "?";
+          await Linking.openURL(
+            `sms:${contact.phone}${separator}body=${body}`,
+          );
+        },
+      },
+    ]);
+  };
+
   return (
     <SafeAreaView edges={["top"]} style={styles.safeArea}>
+      <VoicePermissionSheet
+        canAskAgain={permission?.canAskAgain ?? true}
+        onClose={() => setShowPermission(false)}
+        onEnable={enableVoice}
+        visible={showPermission}
+      />
+
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 68 : 0}
+        keyboardVerticalOffset={0}
         style={styles.keyboardView}
       >
-        <View style={styles.notice}>
-          <Ionicons
-            name="information-circle"
-            size={18}
-            color={COLORS.SECONDARY_DARK}
-          />
-          <Text style={styles.noticeText}>
-            General guidance only—not a diagnosis or emergency service.
-          </Text>
+        <View style={styles.header}>
+          <View style={styles.aiIdentity}>
+            <View style={styles.aiMark}>
+              <Ionicons name="sparkles" size={20} color="#FFFFFF" />
+            </View>
+            <View>
+              <Text style={styles.title}>Smart Health AI</Text>
+              <View style={styles.statusRow}>
+                <View style={styles.statusDot} />
+                <Text style={styles.statusText}>Ready to help</Text>
+              </View>
+            </View>
+          </View>
+          <View style={styles.headerActions}>
+            <Pressable
+              accessibilityLabel="Clear conversation"
+              onPress={clearConversation}
+              style={styles.headerIconButton}
+            >
+              <Ionicons name="refresh" size={19} color={COLORS.TEXT_SECONDARY} />
+            </Pressable>
+            <Pressable onPress={sendSOS} style={styles.sosButton}>
+              <Text style={styles.sosButtonText}>SOS</Text>
+            </Pressable>
+          </View>
         </View>
 
-        <View style={styles.voicePanel}>
+        <View style={styles.voiceBar}>
           <Pressable
-            accessibilityLabel={
-              isListening ? "Stop voice recording" : "Start voice chat"
-            }
+            accessibilityLabel={isListening ? "Stop listening" : "Start voice"}
             onPress={toggleVoice}
             style={[
               styles.voiceButton,
-              isListening && styles.voiceButtonListening,
+              isListening && styles.voiceButtonActive,
             ]}
           >
             <Ionicons
               name={isListening ? "stop" : "mic"}
-              size={30}
+              size={23}
               color="#FFFFFF"
             />
           </Pressable>
-          <View style={styles.voiceContent}>
+          <View style={styles.voiceText}>
             <Text style={styles.voiceTitle}>
-              {isListening ? "Listening..." : "Talk with Smart Health AI"}
+              {isListening ? "Listening now…" : "Prefer to speak?"}
             </Text>
-            <Text style={styles.voiceDescription}>
+            <Text style={styles.voiceSubtitle}>
               {isListening
-                ? "Speak naturally. Tap stop when you finish."
-                : "Tap the microphone, ask your question, and hear the reply."}
+                ? "Describe the symptoms naturally."
+                : "Tap the microphone and tell me what happened."}
             </Text>
           </View>
+          {isListening ? (
+            <View style={styles.listeningBadge}>
+              <Text style={styles.listeningText}>LIVE</Text>
+            </View>
+          ) : null}
         </View>
 
         <ScrollView
-          contentContainerStyle={styles.messages}
+          contentContainerStyle={styles.messageList}
+          keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
+          ref={scrollRef}
           showsVerticalScrollIndicator={false}
-          style={styles.messagesList}
+          style={styles.messageScroller}
         >
+          <View style={styles.safetyNote}>
+            <Ionicons name="shield-checkmark" size={16} color={COLORS.INFO} />
+            <Text style={styles.safetyText}>
+              General first-aid guidance—not a medical diagnosis.
+            </Text>
+          </View>
+
           {messages.map((item) => (
             <View
               key={item.id}
               style={[
-                styles.messageBubble,
-                item.role === "user"
-                  ? styles.userBubble
-                  : styles.assistantBubble,
-                item.assessment && styles.assessmentBubble,
+                styles.message,
+                item.role === "user" ? styles.userMessage : styles.aiMessage,
+                item.assessment && styles.assessmentMessage,
               ]}
             >
+              {item.role === "assistant" ? (
+                <View style={styles.messageAuthor}>
+                  <View style={styles.miniAiMark}>
+                    <Ionicons name="sparkles" size={11} color="#FFFFFF" />
+                  </View>
+                  <Text style={styles.messageAuthorText}>SMART HEALTH AI</Text>
+                </View>
+              ) : null}
               {item.imageUri ? (
-                <Image
-                  resizeMode="cover"
-                  source={{ uri: item.imageUri }}
-                  style={styles.messageImage}
-                />
+                <Image source={{ uri: item.imageUri }} style={styles.image} />
               ) : null}
               <Text
                 style={[
                   styles.messageText,
-                  item.role === "user" && styles.userText,
+                  item.role === "user" && styles.userMessageText,
                 ]}
               >
                 {item.text}
               </Text>
               {item.assessment ? (
-                <AssessmentCard
+                <AssessmentResult
                   assessment={item.assessment}
-                  onNearbyHospitals={openNearbyHospitals}
+                  onHospitals={openNearbyHospitals}
                   onSOS={sendSOS}
                 />
               ) : null}
@@ -375,136 +413,143 @@ export default function PatientAssistant() {
         </ScrollView>
 
         {imageUri ? (
-          <View style={styles.previewRow}>
+          <View style={styles.imagePreview}>
             <Image source={{ uri: imageUri }} style={styles.previewImage} />
-            <Text numberOfLines={1} style={styles.previewText}>
-              Image ready to send
-            </Text>
-            <Pressable onPress={() => setImageUri(undefined)} hitSlop={8}>
-              <Ionicons name="close-circle" size={22} color={COLORS.ERROR} />
+            <View style={styles.previewCopy}>
+              <Text style={styles.previewTitle}>Injury photo attached</Text>
+              <Text style={styles.previewSubtitle}>Add details, then send.</Text>
+            </View>
+            <Pressable
+              accessibilityLabel="Remove image"
+              onPress={() => setImageUri(undefined)}
+            >
+              <Ionicons name="close-circle" size={24} color={COLORS.TEXT_LIGHT} />
             </Pressable>
           </View>
         ) : null}
 
+        {error ? (
+          <Pressable onPress={clearError} style={styles.errorBanner}>
+            <Ionicons name="cloud-offline-outline" size={18} color={COLORS.ERROR} />
+            <Text style={styles.errorBannerText}>{error}</Text>
+            <Ionicons name="close" size={18} color={COLORS.TEXT_LIGHT} />
+          </Pressable>
+        ) : null}
+
         <View style={styles.composer}>
           <Pressable
-            accessibilityLabel="Upload image"
-            onPress={chooseImageSource}
-            style={styles.attachButton}
+            accessibilityLabel="Add injury image"
+            disabled={loading}
+            onPress={chooseImage}
+            style={styles.composerAction}
           >
-            <Ionicons name="image-outline" size={23} color={COLORS.PRIMARY} />
+            <Ionicons name="camera-outline" size={22} color={COLORS.PRIMARY} />
           </Pressable>
           <TextInput
             multiline
             onChangeText={setMessage}
-            placeholder="Describe how you feel..."
+            placeholder="Describe symptoms or ask a question"
             placeholderTextColor={COLORS.TEXT_LIGHT}
             style={styles.input}
             value={message}
+            editable={!loading}
           />
           <Pressable
-            accessibilityLabel={
-              isListening ? "Stop voice recording" : "Talk to AI"
-            }
+            accessibilityLabel={isListening ? "Stop listening" : "Use voice"}
+            disabled={loading}
             onPress={toggleVoice}
             style={[
-              styles.composerVoiceButton,
-              isListening && styles.composerVoiceButtonListening,
+              styles.composerAction,
+              isListening && styles.composerMicActive,
             ]}
           >
             <Ionicons
-              name={isListening ? "stop" : "mic"}
-              size={20}
-              color="#FFFFFF"
+              name={isListening ? "stop" : "mic-outline"}
+              size={22}
+              color={isListening ? "#FFFFFF" : COLORS.PRIMARY}
             />
           </Pressable>
           <Pressable
-            accessibilityLabel="Send message"
-            disabled={!message.trim() && !imageUri}
+            accessibilityLabel="Send"
+            disabled={loading || (!message.trim() && !imageUri)}
             onPress={submit}
             style={[
               styles.sendButton,
-              !message.trim() && !imageUri && styles.sendDisabled,
+              (loading || (!message.trim() && !imageUri)) &&
+                styles.sendButtonDisabled,
             ]}
           >
-            <Ionicons name="send" size={19} color="#FFFFFF" />
+            {loading ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <Ionicons name="arrow-up" size={22} color="#FFFFFF" />
+            )}
           </Pressable>
         </View>
-
-        <Pressable
-          accessibilityLabel="Send emergency SOS"
-          onPress={sendSOS}
-          style={({ pressed }) => [
-            styles.sosButton,
-            pressed && styles.sosPressed,
-          ]}
-        >
-          <Ionicons name="alert-circle" size={21} color="#FFFFFF" />
-          <Text style={styles.sosText}>SOS</Text>
-        </Pressable>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
-const RISK_COLORS: Record<RiskLevel, string> = {
-  low: "#16803D",
-  moderate: "#B77900",
-  high: "#D45600",
-  critical: "#C62828",
-};
-
-function AssessmentCard({
+function AssessmentResult({
   assessment,
-  onNearbyHospitals,
+  onHospitals,
   onSOS,
 }: {
   assessment: HealthAssessment;
-  onNearbyHospitals: () => void;
+  onHospitals: () => void;
   onSOS: () => void;
 }) {
-  const riskColor = RISK_COLORS[assessment.riskLevel];
+  const color = RISK_COLORS[assessment.riskLevel];
 
   return (
     <View style={styles.assessment}>
-      <View style={styles.riskRow}>
-        <View style={[styles.riskBadge, { backgroundColor: riskColor }]}>
-          <Text style={styles.riskBadgeText}>
+      <View style={styles.assessmentHeader}>
+        <View>
+          <Text style={styles.assessmentLabel}>PRELIMINARY RISK</Text>
+          <Text style={[styles.assessmentLevel, { color }]}>
             {assessment.riskLevel.toUpperCase()}
           </Text>
         </View>
-        <Text style={[styles.riskScore, { color: riskColor }]}>
-          Risk {assessment.riskScore}/100
-        </Text>
+        <View style={[styles.scoreCircle, { borderColor: color }]}>
+          <Text style={[styles.scoreText, { color }]}>
+            {assessment.riskScore}
+          </Text>
+          <Text style={[styles.scoreUnit, { color }]}>/100</Text>
+        </View>
       </View>
 
-      <Text style={styles.assessmentHeading}>First aid now</Text>
+      <Text style={styles.resultHeading}>Do this now</Text>
       {assessment.firstAidSteps.map((step, index) => (
-        <View key={step} style={styles.stepRow}>
-          <Text style={styles.stepNumber}>{index + 1}</Text>
+        <View key={step} style={styles.step}>
+          <View style={styles.stepNumber}>
+            <Text style={styles.stepNumberText}>{index + 1}</Text>
+          </View>
           <Text style={styles.stepText}>{step}</Text>
         </View>
       ))}
 
-      <Text style={styles.assessmentHeading}>Get help immediately if</Text>
-      {assessment.warningSigns.map((sign) => (
-        <Text key={sign} style={styles.warningText}>
-          • {sign}
-        </Text>
-      ))}
+      <View style={styles.warningBox}>
+        <Ionicons name="warning-outline" size={18} color={COLORS.ERROR} />
+        <View style={styles.warningCopy}>
+          <Text style={styles.warningTitle}>Get urgent help if</Text>
+          {assessment.warningSigns.map((sign) => (
+            <Text key={sign} style={styles.warningText}>
+              • {sign}
+            </Text>
+          ))}
+        </View>
+      </View>
 
       {assessment.needsNearbyCare ? (
-        <View style={styles.assessmentActions}>
-          <Pressable
-            onPress={onNearbyHospitals}
-            style={styles.hospitalButton}
-          >
-            <Ionicons name="navigate" size={17} color="#FFFFFF" />
-            <Text style={styles.actionButtonText}>Nearby hospitals</Text>
+        <View style={styles.resultActions}>
+          <Pressable onPress={onHospitals} style={styles.hospitalButton}>
+            <Ionicons name="location" size={18} color="#FFFFFF" />
+            <Text style={styles.resultButtonText}>Find hospital</Text>
           </Pressable>
-          <Pressable onPress={onSOS} style={styles.assessmentSosButton}>
-            <Ionicons name="alert" size={17} color="#FFFFFF" />
-            <Text style={styles.actionButtonText}>SOS</Text>
+          <Pressable onPress={onSOS} style={styles.emergencyButton}>
+            <Ionicons name="alert-circle" size={18} color={COLORS.ERROR} />
+            <Text style={styles.emergencyButtonText}>SOS</Text>
           </Pressable>
         </View>
       ) : null}
@@ -512,154 +557,235 @@ function AssessmentCard({
   );
 }
 
+function VoicePermissionSheet({
+  canAskAgain,
+  onClose,
+  onEnable,
+  visible,
+}: {
+  canAskAgain: boolean;
+  onClose: () => void;
+  onEnable: () => void;
+  visible: boolean;
+}) {
+  return (
+    <Modal transparent animationType="slide" visible={visible}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.permissionSheet}>
+          <View style={styles.permissionMark}>
+            <Ionicons name="mic" size={30} color="#FFFFFF" />
+          </View>
+          <Text style={styles.permissionTitle}>Use your voice</Text>
+          <Text style={styles.permissionBody}>
+            Smart Health needs microphone access only while you are speaking.
+            Tap below, then choose Allow on the phone’s permission message.
+          </Text>
+          <View style={styles.permissionInfo}>
+            <Ionicons name="lock-closed" size={16} color={COLORS.PRIMARY} />
+            <Text style={styles.permissionInfoText}>
+              Your microphone never runs in the background.
+            </Text>
+          </View>
+          <Pressable onPress={onEnable} style={styles.enableButton}>
+            <Ionicons
+              name={canAskAgain ? "mic" : "settings"}
+              size={20}
+              color="#FFFFFF"
+            />
+            <Text style={styles.enableButtonText}>
+              {canAskAgain ? "ENABLE MICROPHONE" : "OPEN PHONE SETTINGS"}
+            </Text>
+          </Pressable>
+          <Pressable onPress={onClose} style={styles.typeInsteadButton}>
+            <Text style={styles.typeInsteadText}>I’ll type instead</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 const styles = StyleSheet.create({
-  safeArea: {
-    backgroundColor: COLORS.BACKGROUND,
-    flex: 1,
-  },
-  keyboardView: {
-    flex: 1,
-  },
-  notice: {
+  safeArea: { backgroundColor: COLORS.BACKGROUND_LIGHT, flex: 1 },
+  keyboardView: { flex: 1 },
+  header: {
     alignItems: "center",
-    backgroundColor: "#FFF7DF",
-    borderRadius: 8,
+    borderBottomColor: COLORS.BORDER_LIGHT,
+    borderBottomWidth: 1,
     flexDirection: "row",
-    marginHorizontal: 18,
-    marginTop: 8,
-    padding: 10,
+    height: 66,
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
   },
-  noticeText: {
-    color: COLORS.SECONDARY_DARK,
-    flex: 1,
-    fontSize: 11,
-    lineHeight: 16,
-    marginLeft: 7,
+  aiIdentity: { alignItems: "center", flexDirection: "row" },
+  aiMark: {
+    alignItems: "center",
+    backgroundColor: COLORS.PRIMARY,
+    borderRadius: 12,
+    height: 42,
+    justifyContent: "center",
+    marginRight: 10,
+    width: 42,
   },
-  voicePanel: {
+  title: { color: COLORS.TEXT_PRIMARY, fontSize: 17, fontWeight: "900" },
+  statusRow: { alignItems: "center", flexDirection: "row", marginTop: 2 },
+  statusDot: {
+    backgroundColor: COLORS.SUCCESS,
+    borderRadius: 3,
+    height: 6,
+    marginRight: 5,
+    width: 6,
+  },
+  statusText: { color: COLORS.TEXT_SECONDARY, fontSize: 10 },
+  headerActions: { alignItems: "center", flexDirection: "row", gap: 8 },
+  headerIconButton: {
+    alignItems: "center",
+    borderColor: COLORS.BORDER_LIGHT,
+    borderRadius: 10,
+    borderWidth: 1,
+    height: 38,
+    justifyContent: "center",
+    width: 38,
+  },
+  sosButton: {
+    alignItems: "center",
+    backgroundColor: "#FDECEA",
+    borderRadius: 10,
+    height: 38,
+    justifyContent: "center",
+    paddingHorizontal: 13,
+  },
+  sosButtonText: { color: COLORS.ERROR, fontSize: 11, fontWeight: "900" },
+  voiceBar: {
     alignItems: "center",
     backgroundColor: COLORS.PRIMARY_LIGHT,
-    borderRadius: 10,
+    borderBottomColor: "#C9E1F3",
+    borderBottomWidth: 1,
     flexDirection: "row",
-    marginHorizontal: 18,
-    marginTop: 12,
-    padding: 12,
+    minHeight: 78,
+    paddingHorizontal: 16,
+    paddingVertical: 11,
   },
   voiceButton: {
     alignItems: "center",
     backgroundColor: COLORS.PRIMARY,
-    borderRadius: 30,
-    height: 60,
+    borderRadius: 25,
+    height: 50,
     justifyContent: "center",
-    width: 60,
+    width: 50,
   },
-  voiceButtonListening: {
-    backgroundColor: COLORS.ERROR,
-  },
-  voiceContent: {
-    flex: 1,
-    marginLeft: 13,
-  },
-  voiceTitle: {
-    color: COLORS.TEXT_PRIMARY,
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  voiceDescription: {
+  voiceButtonActive: { backgroundColor: COLORS.ERROR },
+  voiceText: { flex: 1, marginLeft: 12 },
+  voiceTitle: { color: COLORS.TEXT_PRIMARY, fontSize: 14, fontWeight: "900" },
+  voiceSubtitle: {
     color: COLORS.TEXT_SECONDARY,
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 3,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 2,
   },
-  messages: {
-    padding: 18,
-    paddingBottom: 12,
+  listeningBadge: {
+    backgroundColor: COLORS.ERROR,
+    borderRadius: 5,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
   },
-  messagesList: {
-    flex: 1,
+  listeningText: { color: "#FFFFFF", fontSize: 9, fontWeight: "900" },
+  messageScroller: { backgroundColor: COLORS.BACKGROUND, flex: 1 },
+  messageList: { padding: 14, paddingBottom: 18 },
+  safetyNote: {
+    alignItems: "center",
+    alignSelf: "center",
+    flexDirection: "row",
+    marginBottom: 14,
   },
-  messageBubble: {
-    borderRadius: 8,
-    marginBottom: 12,
-    maxWidth: "86%",
-    padding: 12,
-  },
-  assistantBubble: {
+  safetyText: { color: COLORS.TEXT_LIGHT, fontSize: 10, marginLeft: 5 },
+  message: { marginBottom: 11, padding: 12 },
+  aiMessage: {
     alignSelf: "flex-start",
     backgroundColor: COLORS.BACKGROUND_LIGHT,
     borderColor: COLORS.BORDER_LIGHT,
+    borderRadius: 4,
+    borderTopLeftRadius: 0,
     borderWidth: 1,
+    maxWidth: "90%",
   },
-  assessmentBubble: {
-    maxWidth: "96%",
-    width: "96%",
-  },
-  userBubble: {
+  userMessage: {
     alignSelf: "flex-end",
     backgroundColor: COLORS.PRIMARY_DARK,
+    borderRadius: 4,
+    borderTopRightRadius: 0,
+    maxWidth: "82%",
   },
-  messageText: {
-    color: COLORS.TEXT_PRIMARY,
-    fontSize: 14,
-    lineHeight: 20,
+  assessmentMessage: { maxWidth: "100%", width: "100%" },
+  messageAuthor: { alignItems: "center", flexDirection: "row", marginBottom: 7 },
+  miniAiMark: {
+    alignItems: "center",
+    backgroundColor: COLORS.PRIMARY,
+    borderRadius: 7,
+    height: 20,
+    justifyContent: "center",
+    marginRight: 6,
+    width: 20,
   },
-  userText: {
-    color: "#FFFFFF",
+  messageAuthorText: {
+    color: COLORS.PRIMARY,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.8,
   },
-  messageImage: {
-    borderRadius: 6,
-    height: 150,
-    marginBottom: 9,
-    width: 210,
-  },
+  messageText: { color: COLORS.TEXT_PRIMARY, fontSize: 14, lineHeight: 20 },
+  userMessageText: { color: "#FFFFFF" },
+  image: { borderRadius: 3, height: 160, marginBottom: 9, width: 220 },
   assessment: {
     borderTopColor: COLORS.BORDER_LIGHT,
     borderTopWidth: 1,
-    marginTop: 11,
-    paddingTop: 11,
+    marginTop: 12,
+    paddingTop: 12,
   },
-  riskRow: {
+  assessmentHeader: {
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
   },
-  riskBadge: {
-    borderRadius: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  riskBadgeText: {
-    color: "#FFFFFF",
-    fontSize: 10,
+  assessmentLabel: {
+    color: COLORS.TEXT_LIGHT,
+    fontSize: 9,
     fontWeight: "900",
-    letterSpacing: 0.7,
+    letterSpacing: 0.8,
   },
-  riskScore: {
-    fontSize: 13,
-    fontWeight: "900",
+  assessmentLevel: { fontSize: 18, fontWeight: "900", marginTop: 2 },
+  scoreCircle: {
+    alignItems: "baseline",
+    borderRadius: 27,
+    borderWidth: 2,
+    flexDirection: "row",
+    height: 54,
+    justifyContent: "center",
+    width: 54,
   },
-  assessmentHeading: {
+  scoreText: { fontSize: 19, fontWeight: "900" },
+  scoreUnit: { fontSize: 8, fontWeight: "800" },
+  resultHeading: {
     color: COLORS.TEXT_PRIMARY,
     fontSize: 13,
-    fontWeight: "800",
-    marginBottom: 6,
-    marginTop: 13,
-  },
-  stepRow: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    marginBottom: 7,
-  },
-  stepNumber: {
-    backgroundColor: COLORS.PRIMARY_LIGHT,
-    borderRadius: 10,
-    color: COLORS.PRIMARY_DARK,
-    fontSize: 10,
     fontWeight: "900",
-    lineHeight: 20,
-    marginRight: 7,
-    textAlign: "center",
-    width: 20,
+    marginBottom: 9,
+    marginTop: 14,
+  },
+  step: { alignItems: "flex-start", flexDirection: "row", marginBottom: 8 },
+  stepNumber: {
+    alignItems: "center",
+    backgroundColor: COLORS.PRIMARY_LIGHT,
+    borderRadius: 9,
+    height: 19,
+    justifyContent: "center",
+    marginRight: 8,
+    width: 19,
+  },
+  stepNumberText: {
+    color: COLORS.PRIMARY_DARK,
+    fontSize: 9,
+    fontWeight: "900",
   },
   stepText: {
     color: COLORS.TEXT_SECONDARY,
@@ -667,130 +793,192 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
   },
-  warningText: {
-    color: COLORS.ERROR,
-    fontSize: 12,
-    lineHeight: 18,
-  },
-  assessmentActions: {
+  warningBox: {
+    alignItems: "flex-start",
+    backgroundColor: "#FDECEA",
+    borderLeftColor: COLORS.ERROR,
+    borderLeftWidth: 3,
     flexDirection: "row",
-    gap: 8,
-    marginTop: 13,
+    marginTop: 10,
+    padding: 10,
   },
+  warningCopy: { flex: 1, marginLeft: 8 },
+  warningTitle: { color: COLORS.ERROR, fontSize: 11, fontWeight: "900" },
+  warningText: { color: "#7D2A23", fontSize: 11, lineHeight: 16, marginTop: 2 },
+  resultActions: { flexDirection: "row", gap: 8, marginTop: 12 },
   hospitalButton: {
     alignItems: "center",
-    backgroundColor: COLORS.PRIMARY_DARK,
-    borderRadius: 7,
+    backgroundColor: COLORS.PRIMARY,
+    borderRadius: 4,
     flex: 1,
     flexDirection: "row",
     justifyContent: "center",
-    paddingVertical: 10,
+    minHeight: 42,
   },
-  assessmentSosButton: {
-    alignItems: "center",
-    backgroundColor: COLORS.ERROR,
-    borderRadius: 7,
-    flexDirection: "row",
-    justifyContent: "center",
-    paddingHorizontal: 14,
-  },
-  actionButtonText: {
+  resultButtonText: {
     color: "#FFFFFF",
     fontSize: 11,
-    fontWeight: "800",
+    fontWeight: "900",
+    marginLeft: 6,
+  },
+  emergencyButton: {
+    alignItems: "center",
+    borderColor: COLORS.ERROR,
+    borderRadius: 4,
+    borderWidth: 1,
+    flexDirection: "row",
+    justifyContent: "center",
+    paddingHorizontal: 15,
+  },
+  emergencyButtonText: {
+    color: COLORS.ERROR,
+    fontSize: 11,
+    fontWeight: "900",
     marginLeft: 5,
   },
-  previewRow: {
+  imagePreview: {
     alignItems: "center",
     backgroundColor: COLORS.PRIMARY_LIGHT,
+    borderTopColor: "#C9E1F3",
+    borderTopWidth: 1,
     flexDirection: "row",
-    marginHorizontal: 14,
-    padding: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
-  previewImage: {
-    borderRadius: 5,
-    height: 42,
-    width: 42,
+  errorBanner: {
+    alignItems: "center",
+    backgroundColor: "#FDECEA",
+    borderTopColor: "#F5C2BD",
+    borderTopWidth: 1,
+    flexDirection: "row",
+    paddingHorizontal: 12,
+    paddingVertical: 9,
   },
-  previewText: {
-    color: COLORS.PRIMARY_DARK,
+  errorBannerText: {
+    color: "#7D2A23",
     flex: 1,
-    fontSize: 12,
-    fontWeight: "700",
-    marginHorizontal: 9,
+    fontSize: 11,
+    lineHeight: 16,
+    marginHorizontal: 8,
   },
+  previewImage: { borderRadius: 3, height: 42, width: 42 },
+  previewCopy: { flex: 1, marginLeft: 9 },
+  previewTitle: { color: COLORS.TEXT_PRIMARY, fontSize: 12, fontWeight: "800" },
+  previewSubtitle: { color: COLORS.TEXT_SECONDARY, fontSize: 10, marginTop: 2 },
   composer: {
     alignItems: "flex-end",
     backgroundColor: COLORS.BACKGROUND_LIGHT,
     borderTopColor: COLORS.BORDER_LIGHT,
     borderTopWidth: 1,
     flexDirection: "row",
-    marginBottom: 8,
-    marginHorizontal: 10,
-    padding: 8,
-    borderRadius: 10,
-    flexShrink: 0,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
-  attachButton: {
+  composerAction: {
     alignItems: "center",
+    borderColor: COLORS.BORDER_LIGHT,
+    borderRadius: 4,
+    borderWidth: 1,
     height: 44,
     justifyContent: "center",
     width: 42,
   },
+  composerMicActive: {
+    backgroundColor: COLORS.ERROR,
+    borderColor: COLORS.ERROR,
+  },
   input: {
     backgroundColor: COLORS.BACKGROUND_GRAY,
-    borderRadius: 8,
+    borderRadius: 4,
     color: COLORS.TEXT_PRIMARY,
     flex: 1,
-    fontSize: 14,
-    maxHeight: 100,
+    fontSize: 13,
+    marginHorizontal: 7,
+    maxHeight: 92,
     minHeight: 44,
-    paddingHorizontal: 12,
+    paddingHorizontal: 11,
     paddingVertical: 11,
-  },
-  composerVoiceButton: {
-    alignItems: "center",
-    backgroundColor: COLORS.PRIMARY_DARK,
-    borderRadius: 8,
-    height: 44,
-    justifyContent: "center",
-    marginLeft: 8,
-    width: 44,
-  },
-  composerVoiceButtonListening: {
-    backgroundColor: COLORS.ERROR,
   },
   sendButton: {
     alignItems: "center",
-    backgroundColor: COLORS.PRIMARY,
-    borderRadius: 8,
+    backgroundColor: COLORS.PRIMARY_DARK,
+    borderRadius: 4,
     height: 44,
     justifyContent: "center",
-    marginLeft: 8,
+    marginLeft: 7,
     width: 44,
   },
-  sendDisabled: {
-    opacity: 0.4,
+  sendButtonDisabled: { opacity: 0.35 },
+  modalBackdrop: {
+    backgroundColor: "rgba(33,43,50,0.55)",
+    flex: 1,
+    justifyContent: "flex-end",
   },
-  sosButton: {
+  permissionSheet: {
     alignItems: "center",
-    alignSelf: "center",
-    backgroundColor: COLORS.ERROR,
-    borderRadius: 8,
-    flexDirection: "row",
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingBottom: 24,
+    paddingHorizontal: 22,
+    paddingTop: 25,
+  },
+  permissionMark: {
+    alignItems: "center",
+    backgroundColor: COLORS.PRIMARY,
+    borderRadius: 28,
+    height: 56,
     justifyContent: "center",
-    marginBottom: 8,
-    minHeight: 42,
-    width: 110,
+    width: 56,
   },
-  sosPressed: {
-    opacity: 0.78,
-  },
-  sosText: {
-    color: "#FFFFFF",
-    fontSize: 14,
+  permissionTitle: {
+    color: COLORS.TEXT_PRIMARY,
+    fontSize: 22,
     fontWeight: "900",
-    letterSpacing: 1,
-    marginLeft: 6,
+    marginTop: 15,
+  },
+  permissionBody: {
+    color: COLORS.TEXT_SECONDARY,
+    fontSize: 13,
+    lineHeight: 20,
+    marginTop: 8,
+    textAlign: "center",
+  },
+  permissionInfo: {
+    alignItems: "center",
+    backgroundColor: COLORS.PRIMARY_LIGHT,
+    flexDirection: "row",
+    marginTop: 15,
+    padding: 11,
+    width: "100%",
+  },
+  permissionInfoText: {
+    color: COLORS.PRIMARY_DARK,
+    flex: 1,
+    fontSize: 11,
+    marginLeft: 8,
+  },
+  enableButton: {
+    alignItems: "center",
+    backgroundColor: COLORS.PRIMARY_DARK,
+    borderRadius: 4,
+    flexDirection: "row",
+    height: 52,
+    justifyContent: "center",
+    marginTop: 16,
+    width: "100%",
+  },
+  enableButtonText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 0.5,
+    marginLeft: 7,
+  },
+  typeInsteadButton: { padding: 12 },
+  typeInsteadText: {
+    color: COLORS.TEXT_SECONDARY,
+    fontSize: 12,
+    fontWeight: "700",
   },
 });

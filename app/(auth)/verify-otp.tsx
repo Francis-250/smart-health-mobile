@@ -13,6 +13,7 @@ import {
   AuthFormScreen,
   sharedStyles,
 } from "@/components/auth-form";
+import { api, getApiError } from "@/lib/api";
 
 export default function VerifyOtp() {
   const { email = "", flow = "register" } = useLocalSearchParams<{
@@ -20,6 +21,8 @@ export default function VerifyOtp() {
     flow?: "register" | "forgot";
   }>();
   const [digits, setDigits] = useState(["", "", "", "", "", ""]);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
   const inputs = useRef<(TextInput | null)[]>([]);
 
   const updateDigit = (value: string, index: number) => {
@@ -32,14 +35,24 @@ export default function VerifyOtp() {
     }
   };
 
-  const verify = () => {
+  const verify = async () => {
     if (digits.some((digit) => !digit)) return;
+    const otp = digits.join("");
 
     if (flow === "forgot") {
-      router.replace({
-        pathname: "/(auth)/reset-password",
-        params: { email },
-      });
+      setLoading(true);
+      setError("");
+      try {
+        await api.post("/auth/verify-reset-otp", { email, otp });
+        router.replace({
+          pathname: "/(auth)/reset-password",
+          params: { email, otp },
+        });
+      } catch (requestError) {
+        setError(getApiError(requestError));
+      } finally {
+        setLoading(false);
+      }
       return;
     }
 
@@ -75,8 +88,10 @@ export default function VerifyOtp() {
         ))}
       </View>
 
+      {error ? <Text style={sharedStyles.error}>{error}</Text> : null}
+
       <Pressable
-        disabled={digits.some((digit) => !digit)}
+        disabled={digits.some((digit) => !digit) || loading}
         onPress={verify}
         style={({ pressed }) => [
           sharedStyles.button,
@@ -84,13 +99,18 @@ export default function VerifyOtp() {
           pressed && sharedStyles.buttonPressed,
         ]}
       >
-        <Text style={sharedStyles.buttonText}>VERIFY CODE</Text>
+        <Text style={sharedStyles.buttonText}>
+          {loading ? "VERIFYING..." : "VERIFY CODE"}
+        </Text>
         <Ionicons name="checkmark" size={21} color="#FFFFFF" />
       </Pressable>
 
       <View style={sharedStyles.footer}>
         <Text style={sharedStyles.footerText}>Didn’t receive the code?</Text>
-        <Pressable hitSlop={8}>
+        <Pressable
+          hitSlop={8}
+          onPress={() => api.post("/auth/forgot-password", { email })}
+        >
           <Text style={sharedStyles.footerLink}>Resend</Text>
         </Pressable>
       </View>
