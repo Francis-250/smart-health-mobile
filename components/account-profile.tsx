@@ -163,7 +163,7 @@ export function AccountProfile() {
           ]}
         >
           <Ionicons name="log-out-outline" size={21} color="#FFFFFF" />
-          <Text style={styles.logoutText}>LOGOUT</Text>
+          <Text style={styles.logoutText}>SIGN OUT</Text>
         </Pressable>
       </ScrollView>
     </SafeAreaView>
@@ -185,7 +185,9 @@ const styles = StyleSheet.create({
   avatar: {
     alignItems: "center",
     backgroundColor: COLORS.PRIMARY_LIGHT,
-    borderRadius: 52,
+    borderColor: COLORS.BORDER_LIGHT,
+    borderRadius: 8,
+    borderWidth: 1,
     height: 104,
     justifyContent: "center",
     width: 104,
@@ -232,7 +234,7 @@ const styles = StyleSheet.create({
   input: {
     backgroundColor: COLORS.BACKGROUND_LIGHT,
     borderColor: COLORS.BORDER,
-    borderRadius: 8,
+    borderRadius: 6,
     borderWidth: 1,
     color: COLORS.TEXT_PRIMARY,
     height: 48,
@@ -242,7 +244,7 @@ const styles = StyleSheet.create({
   saveButton: {
     alignItems: "center",
     backgroundColor: COLORS.PRIMARY_DARK,
-    borderRadius: 8,
+    borderRadius: 6,
     height: 46,
     justifyContent: "center",
     marginTop: 11,
@@ -256,7 +258,7 @@ const styles = StyleSheet.create({
   logoutButton: {
     alignItems: "center",
     backgroundColor: COLORS.ERROR,
-    borderRadius: 8,
+    borderRadius: 6,
     flexDirection: "row",
     height: 54,
     justifyContent: "center",

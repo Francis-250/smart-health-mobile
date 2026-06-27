@@ -141,8 +141,8 @@ export default function Hospitals() {
     <SafeAreaView edges={["top"]} style={styles.safeArea}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.eyebrow}>GPS HEALTHCARE SERVICES</Text>
-          <Text style={styles.title}>Nearby Hospitals</Text>
+          <Text style={styles.eyebrow}>CARE NEAR YOU</Text>
+          <Text style={styles.title}>Nearby hospitals</Text>
         </View>
         <Pressable onPress={loadHospitals} style={styles.refreshButton}>
           <Ionicons name="locate" size={21} color={COLORS.PRIMARY} />
@@ -179,7 +179,7 @@ export default function Hospitals() {
           <View style={styles.center}>
             <Text style={styles.errorText}>{error}</Text>
             <Pressable onPress={openMapSearch} style={styles.mapsButton}>
-              <Text style={styles.mapsButtonText}>OPEN GOOGLE MAPS</Text>
+              <Text style={styles.mapsButtonText}>OPEN MAPS</Text>
             </Pressable>
           </View>
         ) : (
@@ -412,7 +412,7 @@ const styles = StyleSheet.create({
   refreshButton: {
     alignItems: "center",
     backgroundColor: COLORS.PRIMARY_LIGHT,
-    borderRadius: 8,
+    borderRadius: 6,
     height: 42,
     justifyContent: "center",
     width: 42,
@@ -437,7 +437,7 @@ const styles = StyleSheet.create({
   },
   mapsButton: {
     backgroundColor: COLORS.PRIMARY_DARK,
-    borderRadius: 7,
+    borderRadius: 6,
     marginTop: 12,
     paddingHorizontal: 17,
     paddingVertical: 10,
@@ -447,7 +447,7 @@ const styles = StyleSheet.create({
   hospitalCard: {
     backgroundColor: COLORS.BACKGROUND_LIGHT,
     borderColor: COLORS.BORDER_LIGHT,
-    borderRadius: 9,
+    borderRadius: 6,
     borderWidth: 1,
     marginRight: 10,
     padding: 13,

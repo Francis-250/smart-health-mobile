@@ -49,6 +49,9 @@ const INITIAL_MESSAGE: AssistantMessage = {
   text: "Tell me what happened, describe your symptoms, or attach an injury photo. I’ll provide immediate first-aid guidance.",
 };
 
+const IMAGE_ANALYSIS_PROMPT =
+  "Analyze the attached injury or symptom photo carefully. Describe what is visibly concerning, such as bleeding, swelling, bruising, redness, burns, wound depth, discharge, deformity, or contamination. Do not pretend to know details that are not visible. Give immediate first-aid steps, risk level, warning signs, and ask one or two follow-up questions if needed.";
+
 function mapRiskLevel(level: BackendRiskLevel): RiskLevel {
   if (level === "EMERGENCY") return "critical";
   if (level === "HIGH") return "high";
@@ -113,11 +116,16 @@ export const useHealthAssistantStore = create<HealthAssistantState>()(
       loading: false,
       error: null,
       sendMessage: async (text, imageUri) => {
-        const cleanText = text.trim() || "Please assess this injury image.";
+        const userText = text.trim();
+        const cleanText = imageUri
+          ? userText
+            ? `${userText}\n\n${IMAGE_ANALYSIS_PROMPT}`
+            : IMAGE_ANALYSIS_PROMPT
+          : userText;
         const userMessage: AssistantMessage = {
           id: `local-${Date.now()}`,
           role: "user",
-          text: cleanText,
+          text: userText || "Please analyze this injury photo.",
           imageUri,
         };
         set((state) => ({

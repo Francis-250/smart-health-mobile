@@ -16,16 +16,16 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuthStore } from "@/stores/auth-store";
 
 const COLORS = {
-  background: "#F7FBF9",
+  background: "#F6F8F7",
   surface: "#FFFFFF",
-  primary: "#087F5B",
-  primaryDark: "#075D46",
-  mint: "#DDF5EC",
-  mintLight: "#EDF9F5",
-  amber: "#FFE4A3",
-  text: "#17221E",
-  muted: "#6D7773",
-  border: "#C9D6D1",
+  primary: "#126E82",
+  primaryDark: "#0B3D4A",
+  mint: "#E7F2F4",
+  mintLight: "#F1F6F6",
+  amber: "#F2E9D8",
+  text: "#18252B",
+  muted: "#53666F",
+  border: "#DDE5E4",
 };
 
 export default function Login() {
@@ -72,26 +72,20 @@ export default function Login() {
               <Ionicons name="chevron-back" size={24} color={COLORS.text} />
             </Pressable>
 
-            <View style={[styles.bubble, styles.bubbleLarge]}>
-              <Ionicons name="heart" size={34} color={COLORS.primary} />
+            <View style={styles.brandPanel}>
+              <View style={styles.brandMark}>
+                <Ionicons name="medical" size={28} color={COLORS.primaryDark} />
+              </View>
+              <Text style={styles.brandText}>Smart Health</Text>
+              <Text style={styles.brandSubtext}>First aid, triage, and care navigation.</Text>
             </View>
-            <View style={[styles.bubble, styles.bubbleTop]}>
-              <Ionicons name="fitness" size={24} color={COLORS.primaryDark} />
-            </View>
-            <View style={[styles.bubble, styles.bubbleRight]}>
-              <Ionicons name="medkit" size={29} color="#B06F00" />
-            </View>
-            <View style={[styles.bubble, styles.bubbleBottom]}>
-              <Ionicons name="pulse" size={27} color={COLORS.primary} />
-            </View>
-            <View style={styles.decorativeDot} />
           </View>
 
           <View style={styles.content}>
             <Text style={styles.eyebrow}>SMART HEALTH</Text>
-            <Text style={styles.title}>Welcome back to{"\n"}Smart Health</Text>
+            <Text style={styles.title}>Sign in to your care workspace</Text>
             <Text style={styles.subtitle}>
-              Sign in to continue your care journey.
+              Continue your assessments, hospital search, and emergency profile.
             </Text>
 
             <View style={styles.form}>
@@ -106,7 +100,7 @@ export default function Login() {
                     setEmail(value);
                     clearError();
                   }}
-                  placeholder="example@email.com"
+                  placeholder="name@example.com"
                   placeholderTextColor="#8B9691"
                   returnKeyType="next"
                   style={styles.input}
@@ -129,7 +123,7 @@ export default function Login() {
                     clearError();
                   }}
                   onSubmitEditing={handleLogin}
-                  placeholder="Enter your password"
+                  placeholder="Your password"
                   placeholderTextColor="#8B9691"
                   returnKeyType="done"
                   secureTextEntry={!showPassword}
@@ -170,14 +164,14 @@ export default function Login() {
                 ]}
               >
                 <Text style={styles.loginButtonText}>
-                  {loading ? "SIGNING IN..." : "LOGIN"}
+                  {loading ? "SIGNING IN..." : "SIGN IN"}
                 </Text>
                 <Ionicons name="arrow-forward" size={20} color="#FFFFFF" />
               </Pressable>
             </View>
 
             <View style={styles.signupRow}>
-              <Text style={styles.signupPrompt}>New to Smart Health?</Text>
+              <Text style={styles.signupPrompt}>Need an account?</Text>
               <Link href="/(auth)/register" asChild>
                 <Pressable hitSlop={8}>
                   <Text style={styles.signupLink}>Sign up</Text>
@@ -204,71 +198,59 @@ const styles = StyleSheet.create({
     paddingBottom: 28,
   },
   hero: {
-    height: 210,
+    height: 198,
     overflow: "hidden",
     position: "relative",
   },
   backButton: {
     alignItems: "center",
     backgroundColor: COLORS.amber,
-    borderRadius: 26,
-    height: 52,
+    borderColor: "#DFD2BA",
+    borderRadius: 6,
+    borderWidth: 1,
+    height: 44,
     justifyContent: "center",
     left: 20,
     position: "absolute",
     top: 14,
-    width: 52,
+    width: 44,
     zIndex: 2,
   },
   buttonPressed: {
     opacity: 0.72,
   },
-  bubble: {
-    alignItems: "center",
-    borderColor: COLORS.surface,
-    borderRadius: 999,
-    borderWidth: 5,
-    justifyContent: "center",
-    position: "absolute",
-  },
-  bubbleLarge: {
+  brandPanel: {
+    borderColor: COLORS.border,
+    borderRadius: 6,
+    borderWidth: 1,
     backgroundColor: COLORS.mint,
-    height: 142,
-    left: 96,
-    top: -52,
-    transform: [{ rotate: "12deg" }],
-    width: 184,
-  },
-  bubbleTop: {
-    backgroundColor: "#C6EDDF",
-    height: 82,
-    right: -16,
-    top: -18,
-    width: 82,
-  },
-  bubbleRight: {
-    backgroundColor: "#FFF0C9",
-    height: 100,
-    right: -24,
-    top: 82,
-    width: 100,
-  },
-  bubbleBottom: {
-    backgroundColor: COLORS.mintLight,
-    height: 90,
-    right: 77,
-    top: 92,
-    transform: [{ rotate: "-8deg" }],
-    width: 108,
-  },
-  decorativeDot: {
-    backgroundColor: COLORS.primaryDark,
-    borderRadius: 8,
-    height: 16,
-    left: 17,
+    left: 80,
+    padding: 16,
     position: "absolute",
-    top: 3,
-    width: 16,
+    right: 22,
+    top: 58,
+  },
+  brandMark: {
+    alignItems: "center",
+    backgroundColor: COLORS.surface,
+    borderColor: COLORS.border,
+    borderRadius: 6,
+    borderWidth: 1,
+    height: 48,
+    justifyContent: "center",
+    width: 48,
+  },
+  brandText: {
+    color: COLORS.text,
+    fontSize: 22,
+    fontWeight: "900",
+    marginTop: 12,
+  },
+  brandSubtext: {
+    color: COLORS.muted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 3,
   },
   content: {
     flex: 1,
@@ -276,16 +258,16 @@ const styles = StyleSheet.create({
   },
   eyebrow: {
     color: COLORS.primary,
-    fontSize: 12,
-    fontWeight: "800",
+    fontSize: 11,
+    fontWeight: "900",
     letterSpacing: 2,
     marginBottom: 8,
     textAlign: "center",
   },
   title: {
     color: COLORS.text,
-    fontSize: 32,
-    fontWeight: "800",
+    fontSize: 29,
+    fontWeight: "900",
     letterSpacing: -0.7,
     lineHeight: 38,
     textAlign: "center",
@@ -303,7 +285,7 @@ const styles = StyleSheet.create({
   label: {
     color: COLORS.muted,
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: "700",
     marginBottom: 8,
   },
   passwordLabel: {
@@ -313,8 +295,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: COLORS.surface,
     borderColor: COLORS.border,
-    borderRadius: 8,
-    borderWidth: 1.5,
+    borderRadius: 6,
+    borderWidth: 1,
     flexDirection: "row",
     height: 58,
     paddingHorizontal: 17,
@@ -345,16 +327,11 @@ const styles = StyleSheet.create({
   loginButton: {
     alignItems: "center",
     backgroundColor: COLORS.primaryDark,
-    borderRadius: 18,
+    borderRadius: 6,
     flexDirection: "row",
     height: 58,
     justifyContent: "center",
     marginTop: 16,
-    shadowColor: COLORS.primaryDark,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 5,
   },
   loginButtonPressed: {
     opacity: 0.86,
@@ -365,8 +342,8 @@ const styles = StyleSheet.create({
   },
   loginButtonText: {
     color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "800",
+    fontSize: 13,
+    fontWeight: "900",
     letterSpacing: 0.7,
     marginRight: 9,
   },

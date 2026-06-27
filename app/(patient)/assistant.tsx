@@ -1,5 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { requireOptionalNativeModule } from "expo";
+import {
+  getRecordingPermissionsAsync,
+  requestRecordingPermissionsAsync,
+} from "expo-audio";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import * as Speech from "expo-speech";
@@ -38,6 +42,7 @@ type SpeechEvent = {
 type SpeechPermission = {
   canAskAgain: boolean;
   granted: boolean;
+  status?: string;
 };
 
 type SpeechRecognitionModule = {
@@ -74,34 +79,33 @@ export default function PatientAssistant() {
   const [isListening, setIsListening] = useState(false);
   const [permission, setPermission] = useState<SpeechPermission | null>(null);
   const [showPermission, setShowPermission] = useState(false);
+  const [openAssessments, setOpenAssessments] = useState<
+    Record<string, boolean>
+  >({});
   const scrollRef = useRef<ScrollView>(null);
   const lastTranscript = useRef("");
   const { clearConversation, clearError, error, loading, messages, sendMessage } =
     useHealthAssistantStore();
   const contact = useEmergencyStore((state) => state.contact);
 
-  const sendAndSpeak = useCallback(
+  const readAloud = useCallback((text: string) => {
+    Speech.stop();
+    Speech.speak(text, { language: "en-US", rate: 0.92 });
+  }, []);
+
+  const sendToAssistant = useCallback(
     async (text: string, image?: string) => {
-      const assessment = await sendMessage(text, image);
+      await sendMessage(text, image);
       setMessage("");
       setImageUri(undefined);
-      if (!assessment) return;
-      Speech.stop();
-      Speech.speak(assessment.summary, { language: "en-US", rate: 0.92 });
     },
     [sendMessage],
   );
 
   useEffect(() => {
-    if (!speechRecognition) {
-      const timer = setTimeout(() => setShowPermission(true), 450);
-      return () => clearTimeout(timer);
-    }
+    if (!speechRecognition) return;
 
-    speechRecognition.getPermissionsAsync().then((currentPermission) => {
-      setPermission(currentPermission);
-      if (!currentPermission.granted) setShowPermission(true);
-    });
+    speechRecognition.getPermissionsAsync().then(setPermission);
     const subscriptions = [
       speechRecognition.addListener("start", () => setIsListening(true)),
       speechRecognition.addListener("end", () => setIsListening(false)),
@@ -112,7 +116,7 @@ export default function PatientAssistant() {
 
         if (event.isFinal && transcript !== lastTranscript.current) {
           lastTranscript.current = transcript;
-          sendAndSpeak(transcript);
+          sendToAssistant(transcript);
         }
       }),
       speechRecognition.addListener("error", (event) => {
@@ -124,7 +128,7 @@ export default function PatientAssistant() {
     ];
 
     return () => subscriptions.forEach((item) => item.remove());
-  }, [sendAndSpeak]);
+  }, [sendToAssistant]);
 
   useEffect(() => {
     requestAnimationFrame(() =>
@@ -134,7 +138,12 @@ export default function PatientAssistant() {
 
   const submit = () => {
     if (!message.trim() && !imageUri) return;
-    sendAndSpeak(message, imageUri);
+    sendToAssistant(message, imageUri);
+  };
+
+  const askQuickQuestion = (text: string) => {
+    setMessage(text);
+    sendToAssistant(text);
   };
 
   const beginVoice = () => {
@@ -149,10 +158,23 @@ export default function PatientAssistant() {
 
   const enableVoice = async () => {
     if (!speechRecognition) {
-      setShowPermission(false);
       Alert.alert(
-        "Install the development build",
-        "Live voice recognition is unavailable in Expo Go.",
+        "Voice input unavailable",
+        "This installed build cannot use the microphone. You can still type, upload a photo, and tap the speaker icon to hear AI replies.",
+      );
+      return;
+    }
+
+    const recordingPermission = await requestRecordingPermissionsAsync();
+    if (!recordingPermission.granted) {
+      setPermission({
+        canAskAgain: recordingPermission.canAskAgain,
+        granted: false,
+        status: recordingPermission.status,
+      });
+      Alert.alert(
+        "Microphone unavailable",
+        "Your installed app is not showing Microphone in phone permissions. You can still type, upload images, and use the speaker button to hear replies.",
       );
       return;
     }
@@ -172,7 +194,10 @@ export default function PatientAssistant() {
 
   const toggleVoice = async () => {
     if (!speechRecognition) {
-      setShowPermission(true);
+      Alert.alert(
+        "Voice input unavailable",
+        "This installed build cannot use the microphone. Type your problem or upload a photo, then tap the speaker icon on an AI reply if you want it read aloud.",
+      );
       return;
     }
     if (isListening) {
@@ -183,6 +208,20 @@ export default function PatientAssistant() {
       Alert.alert(
         "Voice unavailable",
         "Speech recognition is unavailable on this device.",
+      );
+      return;
+    }
+
+    const recordingPermission = await getRecordingPermissionsAsync();
+    if (!recordingPermission.granted) {
+      setPermission({
+        canAskAgain: recordingPermission.canAskAgain,
+        granted: false,
+        status: recordingPermission.status,
+      });
+      Alert.alert(
+        "Microphone unavailable",
+        "Microphone is not available in this installed build. Type your problem or upload an image; the AI can still answer and read replies aloud.",
       );
       return;
     }
@@ -285,6 +324,13 @@ export default function PatientAssistant() {
     ]);
   };
 
+  const toggleAssessment = (messageId: string) => {
+    setOpenAssessments((current) => ({
+      ...current,
+      [messageId]: !current[messageId],
+    }));
+  };
+
   return (
     <SafeAreaView edges={["top"]} style={styles.safeArea}>
       <VoicePermissionSheet
@@ -343,12 +389,12 @@ export default function PatientAssistant() {
           </Pressable>
           <View style={styles.voiceText}>
             <Text style={styles.voiceTitle}>
-              {isListening ? "Listening now…" : "Prefer to speak?"}
+              {isListening ? "I’m listening…" : "Talk when you choose"}
             </Text>
             <Text style={styles.voiceSubtitle}>
               {isListening
-                ? "Describe the symptoms naturally."
-                : "Tap the microphone and tell me what happened."}
+                ? "Say the problem like you are talking to a nurse."
+                : "Tap mic to speak if available. Tap speaker on any AI answer to read it."}
             </Text>
           </View>
           {isListening ? (
@@ -373,6 +419,49 @@ export default function PatientAssistant() {
             </Text>
           </View>
 
+          {messages.length <= 1 ? (
+            <View style={styles.conversationStarter}>
+              <Text style={styles.starterEyebrow}>START A ONE-TO-ONE CHECK</Text>
+              <Text style={styles.starterTitle}>
+                Tell me what you feel, where it hurts, and when it started.
+              </Text>
+              <View style={styles.starterGrid}>
+                <StarterChip
+                  icon="thermometer-outline"
+                  label="I have fever"
+                  onPress={() =>
+                    askQuickQuestion(
+                      "I have a fever. Please ask me what you need to know and tell me what first aid I should do.",
+                    )
+                  }
+                />
+                <StarterChip
+                  icon="bandage-outline"
+                  label="I’m injured"
+                  onPress={() =>
+                    askQuickQuestion(
+                      "I have an injury. Please guide me step by step and ask follow-up questions if needed.",
+                    )
+                  }
+                />
+                <StarterChip
+                  icon="pulse-outline"
+                  label="Chest pain"
+                  onPress={() =>
+                    askQuickQuestion(
+                      "I have chest pain. Please help me understand what to do now.",
+                    )
+                  }
+                />
+                <StarterChip
+                  icon="camera-outline"
+                  label="Upload photo"
+                  onPress={chooseImage}
+                />
+              </View>
+            </View>
+          ) : null}
+
           {messages.map((item) => (
             <View
               key={item.id}
@@ -384,10 +473,24 @@ export default function PatientAssistant() {
             >
               {item.role === "assistant" ? (
                 <View style={styles.messageAuthor}>
-                  <View style={styles.miniAiMark}>
-                    <Ionicons name="sparkles" size={11} color="#FFFFFF" />
+                  <View style={styles.authorLeft}>
+                    <View style={styles.miniAiMark}>
+                      <Ionicons name="sparkles" size={11} color="#FFFFFF" />
+                    </View>
+                    <Text style={styles.messageAuthorText}>SMART HEALTH AI</Text>
                   </View>
-                  <Text style={styles.messageAuthorText}>SMART HEALTH AI</Text>
+                  <Pressable
+                    accessibilityLabel="Read AI reply aloud"
+                    onPress={() => readAloud(item.text)}
+                    style={styles.readButton}
+                  >
+                    <Ionicons
+                      name="volume-high-outline"
+                      size={15}
+                      color={COLORS.PRIMARY}
+                    />
+                    <Text style={styles.readButtonText}>Read</Text>
+                  </Pressable>
                 </View>
               ) : null}
               {item.imageUri ? (
@@ -404,6 +507,11 @@ export default function PatientAssistant() {
               {item.assessment ? (
                 <AssessmentResult
                   assessment={item.assessment}
+                  expanded={
+                    openAssessments[item.id] ??
+                    item.assessment.riskLevel === "critical"
+                  }
+                  onToggle={() => toggleAssessment(item.id)}
                   onHospitals={openNearbyHospitals}
                   onSOS={sendSOS}
                 />
@@ -491,12 +599,33 @@ export default function PatientAssistant() {
   );
 }
 
+function StarterChip({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable onPress={onPress} style={styles.starterChip}>
+      <Ionicons name={icon} size={18} color={COLORS.PRIMARY} />
+      <Text style={styles.starterChipText}>{label}</Text>
+    </Pressable>
+  );
+}
+
 function AssessmentResult({
   assessment,
+  expanded,
+  onToggle,
   onHospitals,
   onSOS,
 }: {
   assessment: HealthAssessment;
+  expanded: boolean;
+  onToggle: () => void;
   onHospitals: () => void;
   onSOS: () => void;
 }) {
@@ -504,42 +633,57 @@ function AssessmentResult({
 
   return (
     <View style={styles.assessment}>
-      <View style={styles.assessmentHeader}>
+      <Pressable onPress={onToggle} style={styles.assessmentHeader}>
         <View>
           <Text style={styles.assessmentLabel}>PRELIMINARY RISK</Text>
           <Text style={[styles.assessmentLevel, { color }]}>
             {assessment.riskLevel.toUpperCase()}
           </Text>
         </View>
-        <View style={[styles.scoreCircle, { borderColor: color }]}>
-          <Text style={[styles.scoreText, { color }]}>
-            {assessment.riskScore}
-          </Text>
-          <Text style={[styles.scoreUnit, { color }]}>/100</Text>
-        </View>
-      </View>
-
-      <Text style={styles.resultHeading}>Do this now</Text>
-      {assessment.firstAidSteps.map((step, index) => (
-        <View key={step} style={styles.step}>
-          <View style={styles.stepNumber}>
-            <Text style={styles.stepNumberText}>{index + 1}</Text>
-          </View>
-          <Text style={styles.stepText}>{step}</Text>
-        </View>
-      ))}
-
-      <View style={styles.warningBox}>
-        <Ionicons name="warning-outline" size={18} color={COLORS.ERROR} />
-        <View style={styles.warningCopy}>
-          <Text style={styles.warningTitle}>Get urgent help if</Text>
-          {assessment.warningSigns.map((sign) => (
-            <Text key={sign} style={styles.warningText}>
-              • {sign}
+        <View style={styles.assessmentRight}>
+          <View style={[styles.scoreCircle, { borderColor: color }]}>
+            <Text style={[styles.scoreText, { color }]}>
+              {assessment.riskScore}
             </Text>
-          ))}
+            <Text style={[styles.scoreUnit, { color }]}>/100</Text>
+          </View>
+          <Ionicons
+            name={expanded ? "chevron-up" : "chevron-down"}
+            size={20}
+            color={COLORS.TEXT_LIGHT}
+          />
         </View>
-      </View>
+      </Pressable>
+
+      <Text style={styles.assessmentHint}>
+        Tap to {expanded ? "hide" : "see"} first-aid steps and warning signs.
+      </Text>
+
+      {expanded ? (
+        <View>
+          <Text style={styles.resultHeading}>Do this now</Text>
+          {assessment.firstAidSteps.map((step, index) => (
+            <View key={step} style={styles.step}>
+              <View style={styles.stepNumber}>
+                <Text style={styles.stepNumberText}>{index + 1}</Text>
+              </View>
+              <Text style={styles.stepText}>{step}</Text>
+            </View>
+          ))}
+
+          <View style={styles.warningBox}>
+            <Ionicons name="warning-outline" size={18} color={COLORS.ERROR} />
+            <View style={styles.warningCopy}>
+              <Text style={styles.warningTitle}>Get urgent help if</Text>
+              {assessment.warningSigns.map((sign) => (
+                <Text key={sign} style={styles.warningText}>
+                  • {sign}
+                </Text>
+              ))}
+            </View>
+          </View>
+        </View>
+      ) : null}
 
       {assessment.needsNearbyCare ? (
         <View style={styles.resultActions}>
@@ -621,7 +765,7 @@ const styles = StyleSheet.create({
   aiMark: {
     alignItems: "center",
     backgroundColor: COLORS.PRIMARY,
-    borderRadius: 12,
+    borderRadius: 6,
     height: 42,
     justifyContent: "center",
     marginRight: 10,
@@ -641,7 +785,7 @@ const styles = StyleSheet.create({
   headerIconButton: {
     alignItems: "center",
     borderColor: COLORS.BORDER_LIGHT,
-    borderRadius: 10,
+    borderRadius: 6,
     borderWidth: 1,
     height: 38,
     justifyContent: "center",
@@ -650,7 +794,7 @@ const styles = StyleSheet.create({
   sosButton: {
     alignItems: "center",
     backgroundColor: "#FDECEA",
-    borderRadius: 10,
+    borderRadius: 6,
     height: 38,
     justifyContent: "center",
     paddingHorizontal: 13,
@@ -669,7 +813,7 @@ const styles = StyleSheet.create({
   voiceButton: {
     alignItems: "center",
     backgroundColor: COLORS.PRIMARY,
-    borderRadius: 25,
+    borderRadius: 6,
     height: 50,
     justifyContent: "center",
     width: 50,
@@ -685,7 +829,7 @@ const styles = StyleSheet.create({
   },
   listeningBadge: {
     backgroundColor: COLORS.ERROR,
-    borderRadius: 5,
+    borderRadius: 4,
     paddingHorizontal: 7,
     paddingVertical: 4,
   },
@@ -699,6 +843,49 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   safetyText: { color: COLORS.TEXT_LIGHT, fontSize: 10, marginLeft: 5 },
+  conversationStarter: {
+    backgroundColor: COLORS.BACKGROUND_LIGHT,
+    borderColor: COLORS.BORDER_LIGHT,
+    borderRadius: 6,
+    borderWidth: 1,
+    marginBottom: 16,
+    padding: 14,
+  },
+  starterEyebrow: {
+    color: COLORS.PRIMARY,
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.8,
+  },
+  starterTitle: {
+    color: COLORS.TEXT_PRIMARY,
+    fontSize: 17,
+    fontWeight: "900",
+    lineHeight: 23,
+    marginTop: 6,
+  },
+  starterGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 12,
+  },
+  starterChip: {
+    alignItems: "center",
+    backgroundColor: COLORS.PRIMARY_LIGHT,
+    borderColor: "#C9E1F3",
+    borderRadius: 6,
+    borderWidth: 1,
+    flexDirection: "row",
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+  },
+  starterChipText: {
+    color: COLORS.PRIMARY_DARK,
+    fontSize: 11,
+    fontWeight: "900",
+    marginLeft: 6,
+  },
   message: { marginBottom: 11, padding: 12 },
   aiMessage: {
     alignSelf: "flex-start",
@@ -717,11 +904,17 @@ const styles = StyleSheet.create({
     maxWidth: "82%",
   },
   assessmentMessage: { maxWidth: "100%", width: "100%" },
-  messageAuthor: { alignItems: "center", flexDirection: "row", marginBottom: 7 },
+  messageAuthor: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 7,
+  },
+  authorLeft: { alignItems: "center", flexDirection: "row" },
   miniAiMark: {
     alignItems: "center",
     backgroundColor: COLORS.PRIMARY,
-    borderRadius: 7,
+    borderRadius: 6,
     height: 20,
     justifyContent: "center",
     marginRight: 6,
@@ -732,6 +925,22 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "900",
     letterSpacing: 0.8,
+  },
+  readButton: {
+    alignItems: "center",
+    backgroundColor: COLORS.PRIMARY_LIGHT,
+    borderColor: "#C9E1F3",
+    borderRadius: 4,
+    borderWidth: 1,
+    flexDirection: "row",
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+  },
+  readButtonText: {
+    color: COLORS.PRIMARY_DARK,
+    fontSize: 10,
+    fontWeight: "900",
+    marginLeft: 4,
   },
   messageText: { color: COLORS.TEXT_PRIMARY, fontSize: 14, lineHeight: 20 },
   userMessageText: { color: "#FFFFFF" },
@@ -747,6 +956,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
   },
+  assessmentRight: { alignItems: "center", flexDirection: "row", gap: 10 },
   assessmentLabel: {
     color: COLORS.TEXT_LIGHT,
     fontSize: 9,
@@ -756,7 +966,7 @@ const styles = StyleSheet.create({
   assessmentLevel: { fontSize: 18, fontWeight: "900", marginTop: 2 },
   scoreCircle: {
     alignItems: "baseline",
-    borderRadius: 27,
+    borderRadius: 6,
     borderWidth: 2,
     flexDirection: "row",
     height: 54,
@@ -765,6 +975,11 @@ const styles = StyleSheet.create({
   },
   scoreText: { fontSize: 19, fontWeight: "900" },
   scoreUnit: { fontSize: 8, fontWeight: "800" },
+  assessmentHint: {
+    color: COLORS.TEXT_LIGHT,
+    fontSize: 10,
+    marginTop: 8,
+  },
   resultHeading: {
     color: COLORS.TEXT_PRIMARY,
     fontSize: 13,
@@ -776,7 +991,7 @@ const styles = StyleSheet.create({
   stepNumber: {
     alignItems: "center",
     backgroundColor: COLORS.PRIMARY_LIGHT,
-    borderRadius: 9,
+    borderRadius: 6,
     height: 19,
     justifyContent: "center",
     marginRight: 8,
@@ -917,8 +1132,8 @@ const styles = StyleSheet.create({
   permissionSheet: {
     alignItems: "center",
     backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
     paddingBottom: 24,
     paddingHorizontal: 22,
     paddingTop: 25,
@@ -926,7 +1141,7 @@ const styles = StyleSheet.create({
   permissionMark: {
     alignItems: "center",
     backgroundColor: COLORS.PRIMARY,
-    borderRadius: 28,
+    borderRadius: 6,
     height: 56,
     justifyContent: "center",
     width: 56,

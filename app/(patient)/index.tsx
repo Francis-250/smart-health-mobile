@@ -38,7 +38,7 @@ export default function PatientHome() {
       >
         <Text style={styles.eyebrow}>SMART HEALTH</Text>
         <Text style={styles.greeting}>Hello, {user?.name.split(" ")[0]}</Text>
-        <Text style={styles.subtitle}>How can we help you today?</Text>
+        <Text style={styles.subtitle}>What needs attention today?</Text>
 
         <Pressable
           onPress={() => router.push("/(patient)/assistant")}
@@ -49,15 +49,15 @@ export default function PatientHome() {
           </View>
           <View style={styles.aiContent}>
             <Text style={styles.aiLabel}>AI HEALTH ASSISTANT</Text>
-            <Text style={styles.aiTitle}>Talk to Smart Health AI</Text>
+            <Text style={styles.aiTitle}>Start a health check</Text>
             <Text style={styles.aiDescription}>
-              Ask a health question, describe symptoms, or share an image.
+              Describe symptoms, attach a photo, and get first-aid guidance.
             </Text>
           </View>
           <Ionicons name="arrow-forward" size={22} color="#FFFFFF" />
         </Pressable>
 
-        <Text style={styles.sectionTitle}>Latest risk assessment</Text>
+        <Text style={styles.sectionTitle}>Latest assessment</Text>
         {latestAssessment ? (
           <View style={styles.riskCard}>
             <View style={styles.riskHeader}>
@@ -103,7 +103,7 @@ export default function PatientHome() {
               color={COLORS.PRIMARY}
             />
             <Text style={styles.emptyRiskText}>
-              Complete your first AI assessment to see a risk score.
+              Start a health check to create your first assessment.
             </Text>
           </Pressable>
         )}
@@ -144,9 +144,9 @@ export default function PatientHome() {
             color={COLORS.PRIMARY_DARK}
           />
           <View style={styles.reminderContent}>
-            <Text style={styles.reminderTitle}>Your health matters</Text>
+            <Text style={styles.reminderTitle}>Use clinical judgement</Text>
             <Text style={styles.reminderText}>
-              AI guidance does not replace professional medical care.
+              First-aid guidance can help you act, but urgent symptoms still need professional care.
             </Text>
           </View>
         </View>
@@ -212,7 +212,7 @@ const styles = StyleSheet.create({
   aiCard: {
     alignItems: "center",
     backgroundColor: COLORS.PRIMARY_DARK,
-    borderRadius: 12,
+    borderRadius: 6,
     flexDirection: "row",
     marginTop: 28,
     padding: 18,
@@ -220,7 +220,7 @@ const styles = StyleSheet.create({
   aiIcon: {
     alignItems: "center",
     backgroundColor: "rgba(255,255,255,0.17)",
-    borderRadius: 10,
+    borderRadius: 6,
     height: 54,
     justifyContent: "center",
     width: 54,
@@ -257,7 +257,7 @@ const styles = StyleSheet.create({
   riskCard: {
     backgroundColor: COLORS.BACKGROUND_LIGHT,
     borderColor: COLORS.BORDER_LIGHT,
-    borderRadius: 10,
+    borderRadius: 6,
     borderWidth: 1,
     padding: 15,
   },
@@ -295,7 +295,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: COLORS.BACKGROUND_LIGHT,
     borderColor: COLORS.BORDER,
-    borderRadius: 10,
+    borderRadius: 6,
     borderStyle: "dashed",
     borderWidth: 1,
     flexDirection: "row",
@@ -315,7 +315,7 @@ const styles = StyleSheet.create({
   actionCard: {
     backgroundColor: COLORS.BACKGROUND_LIGHT,
     borderColor: COLORS.BORDER_LIGHT,
-    borderRadius: 10,
+    borderRadius: 6,
     borderWidth: 1,
     flex: 1,
     padding: 16,
@@ -329,7 +329,7 @@ const styles = StyleSheet.create({
   reminder: {
     alignItems: "center",
     backgroundColor: COLORS.PRIMARY_LIGHT,
-    borderRadius: 10,
+    borderRadius: 6,
     flexDirection: "row",
     marginTop: 24,
     padding: 15,

@@ -22,6 +22,13 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     },
     android: {
       ...config.android,
+      permissions: Array.from(
+        new Set([
+          ...(config.android?.permissions ?? []),
+          "android.permission.RECORD_AUDIO",
+          "android.permission.MODIFY_AUDIO_SETTINGS",
+        ]),
+      ),
       config: {
         ...config.android?.config,
         googleMaps: {

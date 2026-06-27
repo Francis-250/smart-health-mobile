@@ -128,8 +128,8 @@ const styles = StyleSheet.create({
   otpInput: {
     backgroundColor: AUTH_COLORS.surface,
     borderColor: AUTH_COLORS.border,
-    borderRadius: 8,
-    borderWidth: 1.5,
+    borderRadius: 6,
+    borderWidth: 1,
     color: AUTH_COLORS.text,
     fontSize: 22,
     fontWeight: "700",

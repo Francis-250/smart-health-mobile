@@ -53,7 +53,7 @@ export function MetricCard({
 export const dashboardStyles = StyleSheet.create({
   sectionTitle: {
     color: COLORS.TEXT_PRIMARY,
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: "900",
     marginBottom: 12,
     marginTop: 25,
@@ -62,14 +62,20 @@ export const dashboardStyles = StyleSheet.create({
   card: {
     backgroundColor: COLORS.BACKGROUND_LIGHT,
     borderColor: COLORS.BORDER_LIGHT,
-    borderRadius: 9,
+    borderRadius: 6,
     borderWidth: 1,
     marginBottom: 10,
     padding: 14,
   },
   row: { alignItems: "center", flexDirection: "row" },
   grow: { flex: 1 },
-  label: { color: COLORS.TEXT_LIGHT, fontSize: 11, fontWeight: "700" },
+  label: {
+    color: COLORS.TEXT_LIGHT,
+    fontSize: 10,
+    fontWeight: "900",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
   heading: {
     color: COLORS.TEXT_PRIMARY,
     fontSize: 15,
@@ -85,7 +91,7 @@ export const dashboardStyles = StyleSheet.create({
   button: {
     alignItems: "center",
     backgroundColor: COLORS.PRIMARY_DARK,
-    borderRadius: 7,
+    borderRadius: 6,
     justifyContent: "center",
     minHeight: 40,
     paddingHorizontal: 14,
@@ -98,7 +104,7 @@ export const dashboardStyles = StyleSheet.create({
 
 const styles = StyleSheet.create({
   safeArea: { backgroundColor: COLORS.BACKGROUND, flex: 1 },
-  content: { padding: 20, paddingBottom: 35 },
+  content: { padding: 18, paddingBottom: 35 },
   eyebrow: {
     color: COLORS.PRIMARY,
     fontSize: 10,
@@ -107,14 +113,14 @@ const styles = StyleSheet.create({
   },
   title: {
     color: COLORS.TEXT_PRIMARY,
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: "900",
     marginTop: 4,
   },
   metricCard: {
     backgroundColor: COLORS.BACKGROUND_LIGHT,
     borderColor: COLORS.BORDER_LIGHT,
-    borderRadius: 9,
+    borderRadius: 6,
     borderWidth: 1,
     minHeight: 122,
     padding: 13,
@@ -122,7 +128,7 @@ const styles = StyleSheet.create({
   },
   metricIcon: {
     alignItems: "center",
-    borderRadius: 7,
+    borderRadius: 6,
     height: 38,
     justifyContent: "center",
     width: 38,

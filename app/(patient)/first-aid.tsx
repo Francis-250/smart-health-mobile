@@ -127,10 +127,10 @@ export default function FirstAidLibrary() {
   return (
     <SafeAreaView edges={["top"]} style={styles.safeArea}>
       <View style={styles.header}>
-        <Text style={styles.eyebrow}>OFFLINE EMERGENCY GUIDES</Text>
-        <Text style={styles.title}>First Aid Library</Text>
+        <Text style={styles.eyebrow}>FIRST-AID REFERENCE</Text>
+        <Text style={styles.title}>First aid library</Text>
         <Text style={styles.subtitle}>
-          Quick steps for common emergencies, available without internet.
+          Clear steps for common injuries and urgent symptoms.
         </Text>
       </View>
 
@@ -185,7 +185,7 @@ export default function FirstAidLibrary() {
           </Pressable>
         ))}
         {!tips.length ? (
-          <Text style={styles.emptyText}>No first aid guide matched.</Text>
+          <Text style={styles.emptyText}>No guide matched your search.</Text>
         ) : null}
       </ScrollView>
     </SafeAreaView>
@@ -217,7 +217,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: COLORS.BACKGROUND_LIGHT,
     borderColor: COLORS.BORDER,
-    borderRadius: 8,
+    borderRadius: 6,
     borderWidth: 1,
     flexDirection: "row",
     marginHorizontal: 20,
@@ -235,7 +235,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: COLORS.BACKGROUND_LIGHT,
     borderColor: COLORS.BORDER_LIGHT,
-    borderRadius: 10,
+    borderRadius: 6,
     borderWidth: 1,
     flexDirection: "row",
     marginBottom: 11,
@@ -243,7 +243,7 @@ const styles = StyleSheet.create({
   },
   tipIcon: {
     alignItems: "center",
-    borderRadius: 8,
+    borderRadius: 6,
     height: 46,
     justifyContent: "center",
     width: 46,
@@ -283,7 +283,7 @@ const styles = StyleSheet.create({
   },
   levelBadge: {
     alignSelf: "flex-start",
-    borderRadius: 5,
+    borderRadius: 4,
     paddingHorizontal: 9,
     paddingVertical: 5,
   },
@@ -315,7 +315,7 @@ const styles = StyleSheet.create({
   step: { alignItems: "flex-start", flexDirection: "row", marginBottom: 13 },
   stepNumber: {
     backgroundColor: COLORS.PRIMARY,
-    borderRadius: 13,
+    borderRadius: 4,
     color: "#FFFFFF",
     fontSize: 12,
     fontWeight: "900",
@@ -333,7 +333,7 @@ const styles = StyleSheet.create({
   },
   warningCard: {
     backgroundColor: "#FFF1F0",
-    borderRadius: 9,
+    borderRadius: 6,
     marginTop: 18,
     padding: 15,
   },

@@ -100,7 +100,7 @@ export default function AssessmentReviews() {
   }
 
   return (
-    <DashboardScreen eyebrow="PATIENT SAFETY" title="Assessment Reviews">
+    <DashboardScreen eyebrow="PATIENT SAFETY" title="Assessment reviews">
       <View style={styles.filters}>
         {(["all", "high", "pending"] as const).map((item) => (
           <Pressable
@@ -177,7 +177,7 @@ const styles = StyleSheet.create({
   },
   riskCard: {
     backgroundColor: "#FFF1F0",
-    borderRadius: 9,
+    borderRadius: 6,
     marginTop: 20,
     padding: 16,
   },
@@ -191,7 +191,7 @@ const styles = StyleSheet.create({
   noteInput: {
     backgroundColor: COLORS.BACKGROUND_LIGHT,
     borderColor: COLORS.BORDER,
-    borderRadius: 8,
+    borderRadius: 6,
     borderWidth: 1,
     color: COLORS.TEXT_PRIMARY,
     minHeight: 130,

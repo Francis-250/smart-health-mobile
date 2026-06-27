@@ -54,7 +54,7 @@ export default function PatientTabsLayout() {
       <Tabs.Screen
         name="assistant"
         options={{
-          title: "AI Assistant",
+          title: "Assistant",
           tabBarIcon: (props) => (
             <TabIcon
               {...props}

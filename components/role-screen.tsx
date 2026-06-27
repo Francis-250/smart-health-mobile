@@ -38,7 +38,9 @@ const styles = StyleSheet.create({
   iconContainer: {
     alignItems: "center",
     backgroundColor: COLORS.PRIMARY_LIGHT,
-    borderRadius: 44,
+    borderColor: COLORS.BORDER_LIGHT,
+    borderRadius: 8,
+    borderWidth: 1,
     height: 88,
     justifyContent: "center",
     marginBottom: 22,

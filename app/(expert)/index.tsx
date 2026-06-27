@@ -16,7 +16,7 @@ export default function ReviewerDashboard() {
   const reviewed = cases.filter((item) => item.status === "reviewed");
 
   return (
-    <DashboardScreen eyebrow="MEDICAL REVIEWER" title="Clinical Dashboard">
+    <DashboardScreen eyebrow="MEDICAL REVIEWER" title="Review queue">
       <View style={dashboardStyles.metrics}>
         <MetricCard
           color={COLORS.WARNING}

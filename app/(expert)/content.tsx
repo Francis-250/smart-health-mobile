@@ -30,7 +30,7 @@ export default function ReviewerContent() {
           placeholderTextColor={COLORS.TEXT_LIGHT}
           style={{
             borderColor: COLORS.BORDER,
-            borderRadius: 7,
+            borderRadius: 6,
             borderWidth: 1,
             color: COLORS.TEXT_PRIMARY,
             height: 46,
