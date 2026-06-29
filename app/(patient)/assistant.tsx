@@ -172,10 +172,16 @@ export default function PatientAssistant() {
         granted: false,
         status: recordingPermission.status,
       });
-      Alert.alert(
-        "Microphone unavailable",
-        "Your installed app is not showing Microphone in phone permissions. You can still type, upload images, and use the speaker button to hear replies.",
-      );
+      if (!recordingPermission.canAskAgain) {
+        Alert.alert(
+          "Microphone blocked",
+          "Microphone access is blocked for Smart Health. Open phone settings and allow Microphone.",
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Open settings", onPress: () => Linking.openSettings() },
+          ],
+        );
+      }
       return;
     }
 
@@ -189,6 +195,18 @@ export default function PatientAssistant() {
     if (nextPermission.granted) {
       setShowPermission(false);
       beginVoice();
+      return;
+    }
+
+    if (!nextPermission.canAskAgain) {
+      Alert.alert(
+        "Speech recognition blocked",
+        "Open phone settings and allow speech recognition/microphone for Smart Health.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Open settings", onPress: () => Linking.openSettings() },
+        ],
+      );
     }
   };
 
@@ -212,17 +230,29 @@ export default function PatientAssistant() {
       return;
     }
 
-    const recordingPermission = await getRecordingPermissionsAsync();
+    let recordingPermission = await getRecordingPermissionsAsync();
+    if (!recordingPermission.granted) {
+      recordingPermission = await requestRecordingPermissionsAsync();
+    }
+
     if (!recordingPermission.granted) {
       setPermission({
         canAskAgain: recordingPermission.canAskAgain,
         granted: false,
         status: recordingPermission.status,
       });
-      Alert.alert(
-        "Microphone unavailable",
-        "Microphone is not available in this installed build. Type your problem or upload an image; the AI can still answer and read replies aloud.",
-      );
+      if (recordingPermission.canAskAgain) {
+        setShowPermission(true);
+      } else {
+        Alert.alert(
+          "Microphone blocked",
+          "Microphone access is blocked for Smart Health. Open phone settings and allow Microphone.",
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Open settings", onPress: () => Linking.openSettings() },
+          ],
+        );
+      }
       return;
     }
 
@@ -230,7 +260,24 @@ export default function PatientAssistant() {
       permission ?? (await speechRecognition.getPermissionsAsync());
     setPermission(currentPermission);
     if (!currentPermission.granted) {
-      setShowPermission(true);
+      const nextPermission = await speechRecognition.requestPermissionsAsync();
+      setPermission(nextPermission);
+      if (!nextPermission.granted) {
+        if (nextPermission.canAskAgain) {
+          setShowPermission(true);
+        } else {
+          Alert.alert(
+            "Speech recognition blocked",
+            "Open phone settings and allow speech recognition/microphone for Smart Health.",
+            [
+              { text: "Cancel", style: "cancel" },
+              { text: "Open settings", onPress: () => Linking.openSettings() },
+            ],
+          );
+        }
+        return;
+      }
+      beginVoice();
       return;
     }
     beginVoice();

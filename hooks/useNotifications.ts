@@ -1,6 +1,6 @@
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -42,7 +42,7 @@ export function useNotifications() {
     };
   }, []);
 
-  const sendLocalNotification = async (
+  const sendLocalNotification = useCallback(async (
     title: string,
     body: string,
     data?: Record<string, unknown>,
@@ -51,7 +51,7 @@ export function useNotifications() {
       content: { title, body, data },
       trigger: null,
     });
-  };
+  }, []);
 
   return {
     expoPushToken,

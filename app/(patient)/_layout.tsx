@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Redirect, Tabs } from "expo-router";
 import { COLORS } from "@/constants/colors";
+import { useHospitalNotifications } from "@/hooks/useHospitalNotifications";
 import { useAuthStore } from "@/stores/auth-store";
 
 type TabIconProps = {
@@ -19,6 +20,8 @@ function TabIcon({ color, focused, name, selectedName, size }: TabIconProps) {
 
 export default function PatientTabsLayout() {
   const { hydrated, user } = useAuthStore();
+  useHospitalNotifications(hydrated && user?.role === "patient");
+
   if (!hydrated) return null;
   if (user?.role !== "patient") return <Redirect href="/(auth)/login" />;
 
