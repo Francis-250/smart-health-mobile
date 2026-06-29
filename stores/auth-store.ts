@@ -32,9 +32,16 @@ type BackendUser = {
   phoneNumber?: string | null;
   profileImage?: string | null;
   role: BackendRole;
+  isActive?: boolean;
 };
 
 type AuthResponse = {
+  user: BackendUser;
+  token: string | null;
+  requiresApproval?: boolean;
+};
+
+type LoginResponse = {
   user: BackendUser;
   token: string;
 };
@@ -45,6 +52,12 @@ type RegisterInput = {
   firstName: string;
   lastName: string;
   phoneNumber?: string;
+  role?: "PATIENT" | "REVIEWER";
+};
+
+type RegisterResult = {
+  user: AuthUser | null;
+  requiresApproval: boolean;
 };
 
 type AuthState = {
@@ -53,7 +66,7 @@ type AuthState = {
   hydrated: boolean;
   loading: boolean;
   login: (email: string, password: string) => Promise<AuthUser | null>;
-  register: (input: RegisterInput) => Promise<AuthUser | null>;
+  register: (input: RegisterInput) => Promise<RegisterResult | null>;
   restoreSession: () => Promise<void>;
   logout: () => Promise<void>;
   clearError: () => void;
@@ -95,7 +108,7 @@ export const useAuthStore = create<AuthState>()(
       login: async (email, password) => {
         set({ error: null, loading: true });
         try {
-          const { data } = await api.post<AuthResponse>("/auth/login", {
+          const { data } = await api.post<LoginResponse>("/auth/login", {
             email: email.trim().toLowerCase(),
             password,
           });
@@ -116,10 +129,14 @@ export const useAuthStore = create<AuthState>()(
             "/auth/register",
             input,
           );
+          if (data.requiresApproval || !data.token) {
+            set({ error: null, loading: false, user: null });
+            return { user: null, requiresApproval: true };
+          }
           const user = mapUser(data.user);
           await saveApiToken(data.token);
           set({ error: null, loading: false, user });
-          return user;
+          return { user, requiresApproval: false };
         } catch (error) {
           set({ error: getApiError(error), loading: false });
           return null;
