@@ -25,6 +25,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       permissions: Array.from(
         new Set([
           ...(config.android?.permissions ?? []),
+          "android.permission.POST_NOTIFICATIONS",
           "android.permission.RECORD_AUDIO",
           "android.permission.MODIFY_AUDIO_SETTINGS",
         ]),

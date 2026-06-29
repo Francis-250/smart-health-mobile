@@ -1,10 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
-import { router } from "expo-router";
-import { PropsWithChildren, ReactNode } from "react";
+import type { PropsWithChildren, ReactNode } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,32 +11,44 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export const AUTH_COLORS = {
-  background: "#F6F8F7",
+  background: "#F8FAFF",
   surface: "#FFFFFF",
-  primary: "#126E82",
-  primaryDark: "#0B3D4A",
-  mint: "#E7F2F4",
-  amber: "#F2E9D8",
-  text: "#18252B",
-  muted: "#53666F",
-  border: "#DDE5E4",
+  primary: "#0B4AAE",
+  primaryDark: "#083D99",
+  blueSoft: "#EAF1FF",
+  mint: "#EAFBF4",
+  text: "#111827",
+  muted: "#6B7280",
+  border: "#C7CEDD",
+  borderLight: "#E2E8F0",
   error: "#B42318",
+  green: "#047857",
 };
 
 type AuthFormScreenProps = PropsWithChildren<{
   title: string;
   subtitle: string;
+  bottomNote?: ReactNode;
+  cardIcon?: keyof typeof Ionicons.glyphMap;
   footer?: ReactNode;
+  hero?: ReactNode;
   icon?: keyof typeof Ionicons.glyphMap;
+  topSpacer?: number;
 }>;
 
 export function AuthFormScreen({
+  bottomNote,
+  cardIcon,
   children,
   footer,
-  icon = "shield-checkmark",
+  hero,
+  icon,
   subtitle,
   title,
+  topSpacer = 138,
 }: AuthFormScreenProps) {
+  const displayedCardIcon = cardIcon ?? icon;
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
@@ -53,72 +63,82 @@ export function AuthFormScreen({
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.header}>
-            <Pressable
-              accessibilityLabel="Go back"
-              hitSlop={10}
-              onPress={() => router.back()}
-              style={({ pressed }) => [
-                styles.backButton,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Ionicons name="chevron-back" size={24} color={AUTH_COLORS.text} />
-            </Pressable>
+          <View pointerEvents="none" style={styles.topGlow} />
+          <View pointerEvents="none" style={styles.bottomGlow} />
 
-            <View style={styles.iconBubble}>
-              <Ionicons name={icon} size={38} color={AUTH_COLORS.primary} />
-            </View>
-          </View>
+          <BrandHeader />
+
+          {hero}
 
           <View style={styles.content}>
-            <Text style={styles.eyebrow}>SMART HEALTH</Text>
+            <View style={{ height: hero ? 28 : topSpacer }} />
             <Text style={styles.title}>{title}</Text>
             <Text style={styles.subtitle}>{subtitle}</Text>
 
-            <View style={styles.form}>{children}</View>
+            <View style={styles.card}>
+              {displayedCardIcon ? (
+                <View style={styles.cardIcon}>
+                  <Ionicons
+                    name={displayedCardIcon}
+                    size={43}
+                    color={AUTH_COLORS.primary}
+                  />
+                </View>
+              ) : null}
+              {children}
+            </View>
             {footer}
           </View>
+          {bottomNote}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
+export function BrandHeader() {
+  return (
+    <View style={styles.brandHeader}>
+      <Ionicons name="medical-outline" size={29} color={AUTH_COLORS.primary} />
+      <Text style={styles.brandText}>Smart Health</Text>
+    </View>
+  );
+}
+
 export const sharedStyles = StyleSheet.create({
   label: {
-    color: AUTH_COLORS.muted,
-    fontSize: 12,
+    color: "#374151",
+    fontSize: 16,
     fontWeight: "700",
-    letterSpacing: 0.2,
-    marginBottom: 8,
-    marginTop: 16,
+    letterSpacing: 0.1,
+    marginBottom: 9,
+    marginTop: 20,
   },
   inputContainer: {
     alignItems: "center",
     backgroundColor: AUTH_COLORS.surface,
     borderColor: AUTH_COLORS.border,
-    borderRadius: 6,
+    borderRadius: 12,
     borderWidth: 1,
     flexDirection: "row",
-    height: 58,
-    paddingHorizontal: 17,
+    height: 64,
+    paddingHorizontal: 20,
   },
   input: {
     color: AUTH_COLORS.text,
     flex: 1,
-    fontSize: 15,
+    fontSize: 18,
     height: "100%",
-    marginLeft: 11,
+    marginRight: 12,
   },
   button: {
     alignItems: "center",
     backgroundColor: AUTH_COLORS.primaryDark,
-    borderRadius: 6,
+    borderRadius: 14,
     flexDirection: "row",
-    height: 58,
+    height: 64,
     justifyContent: "center",
-    marginTop: 26,
+    marginTop: 30,
   },
   buttonPressed: {
     opacity: 0.86,
@@ -126,33 +146,32 @@ export const sharedStyles = StyleSheet.create({
   },
   buttonText: {
     color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "900",
-    letterSpacing: 0.5,
-    marginRight: 9,
+    fontSize: 20,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+    marginRight: 12,
   },
   footer: {
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "center",
-    paddingBottom: 12,
-    paddingTop: 30,
+    paddingBottom: 20,
+    paddingTop: 26,
   },
   footerText: {
-    color: AUTH_COLORS.muted,
-    fontSize: 14,
-    marginRight: 5,
+    color: "#374151",
+    fontSize: 17,
+    marginRight: 6,
   },
   footerLink: {
     color: AUTH_COLORS.primaryDark,
-    fontSize: 14,
+    fontSize: 17,
     fontWeight: "800",
-    textDecorationLine: "underline",
   },
   error: {
     color: AUTH_COLORS.error,
-    fontSize: 13,
-    marginTop: 10,
+    fontSize: 14,
+    marginTop: 12,
   },
 });
 
@@ -166,70 +185,79 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
+    overflow: "hidden",
     paddingBottom: 28,
   },
-  header: {
-    alignItems: "center",
-    height: 145,
-    justifyContent: "center",
-    position: "relative",
-  },
-  backButton: {
-    alignItems: "center",
-    backgroundColor: AUTH_COLORS.amber,
-    borderColor: "#DFD2BA",
-    borderRadius: 6,
-    borderWidth: 1,
-    height: 44,
-    justifyContent: "center",
-    left: 20,
+  topGlow: {
+    backgroundColor: AUTH_COLORS.blueSoft,
+    borderRadius: 240,
+    height: 420,
+    opacity: 0.55,
     position: "absolute",
-    top: 14,
-    width: 44,
+    right: -145,
+    top: 92,
+    width: 420,
   },
-  pressed: {
-    opacity: 0.72,
-  },
-  iconBubble: {
-    alignItems: "center",
+  bottomGlow: {
     backgroundColor: AUTH_COLORS.mint,
-    borderColor: AUTH_COLORS.border,
-    borderRadius: 6,
-    borderWidth: 1,
-    height: 88,
+    borderRadius: 250,
+    bottom: 60,
+    height: 420,
+    left: -155,
+    opacity: 0.68,
+    position: "absolute",
+    width: 420,
+  },
+  brandHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 13,
     justifyContent: "center",
-    marginTop: 12,
-    width: 88,
+    paddingTop: 18,
+  },
+  brandText: {
+    color: AUTH_COLORS.primaryDark,
+    fontSize: 26,
+    fontWeight: "900",
+    letterSpacing: -0.4,
   },
   content: {
     flex: 1,
-    paddingHorizontal: 22,
-  },
-  eyebrow: {
-    color: AUTH_COLORS.primary,
-    fontSize: 11,
-    fontWeight: "900",
-    letterSpacing: 2,
-    marginBottom: 8,
-    textAlign: "center",
+    paddingHorizontal: 20,
   },
   title: {
     color: AUTH_COLORS.text,
-    fontSize: 28,
+    fontSize: 36,
     fontWeight: "900",
-    letterSpacing: -0.6,
-    lineHeight: 37,
+    letterSpacing: -1,
+    lineHeight: 43,
     textAlign: "center",
   },
   subtitle: {
-    color: AUTH_COLORS.muted,
-    fontSize: 15,
-    lineHeight: 22,
-    marginTop: 10,
-    paddingHorizontal: 8,
+    color: "#374151",
+    fontSize: 19,
+    lineHeight: 28,
+    marginTop: 12,
+    paddingHorizontal: 12,
     textAlign: "center",
   },
-  form: {
-    marginTop: 18,
+  card: {
+    backgroundColor: AUTH_COLORS.surface,
+    borderColor: AUTH_COLORS.borderLight,
+    borderRadius: 18,
+    borderWidth: 1,
+    marginTop: 34,
+    padding: 28,
+  },
+  cardIcon: {
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: AUTH_COLORS.blueSoft,
+    borderRadius: 58,
+    height: 104,
+    justifyContent: "center",
+    marginBottom: 34,
+    marginTop: 8,
+    width: 104,
   },
 });

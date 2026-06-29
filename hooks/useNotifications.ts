@@ -1,4 +1,5 @@
 import * as Notifications from "expo-notifications";
+import { Platform } from "react-native";
 import { useEffect, useRef, useState } from "react";
 
 Notifications.setNotificationHandler({
@@ -60,16 +61,37 @@ export function useNotifications() {
 }
 
 async function registerForPushNotifications() {
-  const { status } = await Notifications.requestPermissionsAsync();
-  if (status !== "granted") {
+  if (Platform.OS === "android") {
+    await Notifications.setNotificationChannelAsync("default", {
+      importance: Notifications.AndroidImportance.MAX,
+      lightColor: "#126E82",
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      name: "Smart Health alerts",
+      sound: "default",
+      vibrationPattern: [0, 250, 250, 250],
+    });
+  }
+
+  const current = await Notifications.getPermissionsAsync();
+  const finalPermission =
+    current.status === "granted"
+      ? current
+      : await Notifications.requestPermissionsAsync();
+
+  if (finalPermission.status !== "granted") {
     console.warn("Notification permission denied");
     return null;
   }
 
-  const token = await Notifications.getExpoPushTokenAsync({
-    projectId: "69ea2e72-12c7-4c50-b60e-01d7cdafb328",
-  });
+  try {
+    const token = await Notifications.getExpoPushTokenAsync({
+      projectId: "69ea2e72-12c7-4c50-b60e-01d7cdafb328",
+    });
 
-  console.log("Expo Push Token:", token.data);
-  return token.data;
+    console.log("Expo Push Token:", token.data);
+    return token.data;
+  } catch (error) {
+    console.warn("Expo push token unavailable:", error);
+    return null;
+  }
 }

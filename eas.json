@@ -1,5 +1,6 @@
 {
   "cli": {
+    "appVersionSource": "local",
     "version": ">= 16.0.0"
   },
   "build": {
@@ -8,6 +9,7 @@
       "distribution": "internal"
     },
     "preview": {
+      "autoIncrement": true,
       "distribution": "internal"
     },
     "production": {

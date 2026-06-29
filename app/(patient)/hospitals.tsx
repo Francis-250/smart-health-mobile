@@ -1,7 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import Constants from "expo-constants";
 import * as Location from "expo-location";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Linking,
@@ -9,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import MapView, { Marker, PROVIDER_GOOGLE, Region } from "react-native-maps";
@@ -22,97 +22,102 @@ type Hospital = {
   address: string;
   latitude: number;
   longitude: number;
-  phone?: string;
+  phoneNumber?: string | null;
+  email?: string | null;
+  isEmergency: boolean;
   distanceMeters?: number;
-};
-
-type GooglePlace = {
-  id?: string;
-  displayName?: { text?: string };
-  formattedAddress?: string;
-  location?: { latitude?: number; longitude?: number };
-  nationalPhoneNumber?: string;
-};
-
-type OverpassElement = {
-  id: number;
-  lat?: number;
-  lon?: number;
-  center?: { lat?: number; lon?: number };
-  tags?: {
-    name?: string;
-    "name:en"?: string;
-    "addr:full"?: string;
-    "addr:street"?: string;
-    phone?: string;
-  };
 };
 
 const KIGALI_REGION: Region = {
   latitude: -1.9441,
   longitude: 30.0619,
-  latitudeDelta: 0.12,
-  longitudeDelta: 0.12,
+  latitudeDelta: 0.16,
+  longitudeDelta: 0.16,
 };
 
 export default function Hospitals() {
+  const mapRef = useRef<MapView>(null);
   const [region, setRegion] = useState<Region>(KIGALI_REGION);
   const [hospitals, setHospitals] = useState<Hospital[]>([]);
+  const [selectedId, setSelectedId] = useState<string>();
+  const [mode, setMode] = useState<"list" | "map">("list");
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  const filteredHospitals = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return hospitals;
+    return hospitals.filter((hospital) =>
+      [
+        hospital.name,
+        hospital.address,
+        hospital.phoneNumber ?? "",
+        hospital.email ?? "",
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(query),
+    );
+  }, [hospitals, search]);
+
+  const selectedHospital =
+    hospitals.find((hospital) => hospital.id === selectedId) ??
+    filteredHospitals[0];
 
   const loadHospitals = async () => {
     setLoading(true);
     setError("");
 
     try {
-      const permission = await Location.requestForegroundPermissionsAsync();
-      if (!permission.granted) {
-        setError("Location permission is needed to find nearby hospitals.");
-        return;
-      }
+      const [location, { data }] = await Promise.all([
+        getOptionalLocation(),
+        api.get<
+          {
+            id: string;
+            name: string;
+            address: string;
+            latitude: number;
+            longitude: number;
+            phoneNumber?: string | null;
+            email?: string | null;
+            isEmergency: boolean;
+          }[]
+        >("/hospitals"),
+      ]);
 
-      const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-      const nextRegion = {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-        latitudeDelta: 0.08,
-        longitudeDelta: 0.08,
-      };
-      setRegion(nextRegion);
+      const nextHospitals = data
+        .map((hospital) => ({
+          ...hospital,
+          latitude: Number(hospital.latitude),
+          longitude: Number(hospital.longitude),
+          distanceMeters: location
+            ? distanceInMeters(
+                location.coords.latitude,
+                location.coords.longitude,
+                Number(hospital.latitude),
+                Number(hospital.longitude),
+              )
+            : undefined,
+        }))
+        .sort((first, second) => {
+          if (first.distanceMeters == null || second.distanceMeters == null) {
+            return first.name.localeCompare(second.name);
+          }
+          return first.distanceMeters - second.distanceMeters;
+        });
 
-      let nearbyHospitals = await searchBackendHospitals(
-        nextRegion.latitude,
-        nextRegion.longitude,
-      );
-      const apiKey = String(
-        Constants.expoConfig?.extra?.googleMapsApiKey ?? "",
-      );
-      if (!nearbyHospitals.length && apiKey) {
-        nearbyHospitals = await searchGoogleHospitals(
-          apiKey,
-          nextRegion.latitude,
-          nextRegion.longitude,
-        );
-      }
-      if (!nearbyHospitals.length) {
-        nearbyHospitals = await searchOpenStreetMapHospitals(
-          nextRegion.latitude,
-          nextRegion.longitude,
-        );
-      }
-      setHospitals(nearbyHospitals);
-      if (!nearbyHospitals.length) {
-        setError(
-          "No hospital list was returned. Use Google Maps to search around your current location.",
-        );
+      setHospitals(nextHospitals);
+      setSelectedId(nextHospitals[0]?.id);
+
+      if (nextHospitals[0]) {
+        const nextRegion = regionFromHospital(nextHospitals[0]);
+        setRegion(nextRegion);
+      } else {
+        setError("No hospitals have been added by the admin yet.");
       }
     } catch {
-      setError(
-        "Live hospital results could not load. You can still search and navigate with Google Maps.",
-      );
+      setError("Could not load hospitals from Smart Health. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -122,251 +127,250 @@ export default function Hospitals() {
     loadHospitals();
   }, []);
 
-  const navigate = async (hospital: Hospital) => {
-    const destination = `${hospital.latitude},${hospital.longitude}`;
-    const url = `https://www.google.com/maps/dir/?api=1&destination=${destination}&travelmode=driving`;
-    await Linking.openURL(url);
+  const focusHospital = (hospital: Hospital) => {
+    setSelectedId(hospital.id);
+    const nextRegion = regionFromHospital(hospital);
+    setRegion(nextRegion);
+    mapRef.current?.animateToRegion(nextRegion, 450);
   };
 
-  const openMapSearch = async () => {
-    const query = encodeURIComponent(
-      `hospitals near ${region.latitude},${region.longitude}`,
-    );
+  const openMap = async (hospital: Hospital) => {
     await Linking.openURL(
-      `https://www.google.com/maps/search/?api=1&query=${query}`,
+      `https://www.google.com/maps/search/?api=1&query=${hospital.latitude},${hospital.longitude}`,
     );
+  };
+
+  const callHospital = async (hospital: Hospital) => {
+    if (!hospital.phoneNumber) return;
+    await Linking.openURL(`tel:${hospital.phoneNumber}`);
   };
 
   return (
     <SafeAreaView edges={["top"]} style={styles.safeArea}>
       <View style={styles.header}>
-        <View>
-          <Text style={styles.eyebrow}>CARE NEAR YOU</Text>
-          <Text style={styles.title}>Nearby hospitals</Text>
+        <View style={styles.headerIcon}>
+          <Ionicons name="business-outline" size={24} color={COLORS.PRIMARY} />
+        </View>
+        <View style={styles.headerCopy}>
+          <Text style={styles.eyebrow}>ADMIN HOSPITAL NETWORK</Text>
+          <Text style={styles.title}>Hospitals</Text>
         </View>
         <Pressable onPress={loadHospitals} style={styles.refreshButton}>
-          <Ionicons name="locate" size={21} color={COLORS.PRIMARY} />
+          <Ionicons name="refresh" size={20} color={COLORS.PRIMARY} />
         </Pressable>
       </View>
 
-      <MapView
-        provider={PROVIDER_GOOGLE}
-        region={region}
-        showsUserLocation
-        style={styles.map}
-      >
-        {hospitals.map((hospital) => (
-          <Marker
-            coordinate={{
-              latitude: hospital.latitude,
-              longitude: hospital.longitude,
-            }}
-            description={hospital.address}
-            key={hospital.id}
-            pinColor={COLORS.ERROR}
-            title={hospital.name}
-          />
-        ))}
-      </MapView>
-
-      <View style={styles.results}>
-        {loading ? (
-          <View style={styles.center}>
-            <ActivityIndicator color={COLORS.PRIMARY} />
-            <Text style={styles.loadingText}>Finding nearby hospitals…</Text>
-          </View>
-        ) : error ? (
-          <View style={styles.center}>
-            <Text style={styles.errorText}>{error}</Text>
-            <Pressable onPress={openMapSearch} style={styles.mapsButton}>
-              <Text style={styles.mapsButtonText}>OPEN MAPS</Text>
-            </Pressable>
-          </View>
-        ) : (
-          <ScrollView
-            contentContainerStyle={styles.hospitalList}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-          >
-            {hospitals.map((hospital) => (
-              <View key={hospital.id} style={styles.hospitalCard}>
-                <Text numberOfLines={1} style={styles.hospitalName}>
-                  {hospital.name}
-                </Text>
-                <Text numberOfLines={2} style={styles.address}>
-                  {hospital.address}
-                </Text>
-                <View style={styles.cardFooter}>
-                  <Text style={styles.distance}>
-                    {hospital.distanceMeters
-                      ? `${(hospital.distanceMeters / 1000).toFixed(1)} km`
-                      : "Nearby"}
-                  </Text>
-                  <Pressable
-                    onPress={() => navigate(hospital)}
-                    style={styles.navigateButton}
-                  >
-                    <Ionicons name="navigate" size={15} color="#FFFFFF" />
-                    <Text style={styles.navigateText}>Route</Text>
-                  </Pressable>
-                </View>
-              </View>
-            ))}
-          </ScrollView>
-        )}
+      <View style={styles.searchBox}>
+        <Ionicons name="search" size={20} color={COLORS.TEXT_LIGHT} />
+        <TextInput
+          onChangeText={setSearch}
+          placeholder="Search hospital, address, phone..."
+          placeholderTextColor={COLORS.TEXT_LIGHT}
+          style={styles.searchInput}
+          value={search}
+        />
       </View>
+
+      <View style={styles.switcher}>
+        <Pressable
+          onPress={() => setMode("list")}
+          style={[styles.switchButton, mode === "list" && styles.switchActive]}
+        >
+          <Text
+            style={[
+              styles.switchText,
+              mode === "list" && styles.switchTextActive,
+            ]}
+          >
+            List View
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={() => setMode("map")}
+          style={[styles.switchButton, mode === "map" && styles.switchActive]}
+        >
+          <Text
+            style={[
+              styles.switchText,
+              mode === "map" && styles.switchTextActive,
+            ]}
+          >
+            Map View
+          </Text>
+        </Pressable>
+      </View>
+
+      {loading ? (
+        <View style={styles.centerState}>
+          <ActivityIndicator color={COLORS.PRIMARY} />
+          <Text style={styles.centerText}>Loading hospitals added by admin…</Text>
+        </View>
+      ) : error ? (
+        <View style={styles.centerState}>
+          <Ionicons name="cloud-offline-outline" size={32} color={COLORS.ERROR} />
+          <Text style={styles.errorText}>{error}</Text>
+          <Pressable onPress={loadHospitals} style={styles.primaryAction}>
+            <Text style={styles.primaryActionText}>Try again</Text>
+          </Pressable>
+        </View>
+      ) : mode === "map" ? (
+        <View style={styles.mapScreen}>
+          <MapView
+            provider={PROVIDER_GOOGLE}
+            ref={mapRef}
+            region={region}
+            showsUserLocation
+            style={styles.map}
+          >
+            {filteredHospitals.map((hospital) => (
+              <Marker
+                coordinate={{
+                  latitude: hospital.latitude,
+                  longitude: hospital.longitude,
+                }}
+                description={hospital.address}
+                key={hospital.id}
+                onPress={() => focusHospital(hospital)}
+                pinColor={hospital.isEmergency ? COLORS.ERROR : COLORS.PRIMARY}
+                title={hospital.name}
+              />
+            ))}
+          </MapView>
+
+          {selectedHospital ? (
+            <View style={styles.mapBottomCard}>
+              <HospitalCard
+                compact
+                hospital={selectedHospital}
+                onCall={() => callHospital(selectedHospital)}
+                onMap={() => openMap(selectedHospital)}
+                onPress={() => focusHospital(selectedHospital)}
+              />
+            </View>
+          ) : null}
+        </View>
+      ) : (
+        <ScrollView
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.countRow}>
+            <Text style={styles.countText}>
+              {filteredHospitals.length} hospital
+              {filteredHospitals.length === 1 ? "" : "s"} available
+            </Text>
+            <Text style={styles.countHint}>Added from admin dashboard</Text>
+          </View>
+
+          {filteredHospitals.map((hospital) => (
+            <HospitalCard
+              hospital={hospital}
+              key={hospital.id}
+              onCall={() => callHospital(hospital)}
+              onMap={() => openMap(hospital)}
+              onPress={() => {
+                focusHospital(hospital);
+                setMode("map");
+              }}
+            />
+          ))}
+        </ScrollView>
+      )}
     </SafeAreaView>
   );
 }
 
-async function searchBackendHospitals(
-  latitude: number,
-  longitude: number,
-): Promise<Hospital[]> {
+function HospitalCard({
+  compact = false,
+  hospital,
+  onCall,
+  onMap,
+  onPress,
+}: {
+  compact?: boolean;
+  hospital: Hospital;
+  onCall: () => void;
+  onMap: () => void;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[styles.card, compact && styles.compactCard]}
+    >
+      <View style={styles.cardTop}>
+        <View style={styles.hospitalMark}>
+          <Ionicons name="medkit-outline" size={24} color={COLORS.PRIMARY} />
+        </View>
+        <View style={styles.cardCopy}>
+          <View style={styles.cardTitleRow}>
+            <Text numberOfLines={2} style={styles.hospitalName}>
+              {hospital.name}
+            </Text>
+            {hospital.isEmergency ? (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>Emergency</Text>
+              </View>
+            ) : null}
+          </View>
+
+          <Text numberOfLines={2} style={styles.address}>
+            {hospital.address}
+          </Text>
+
+          <View style={styles.metaRow}>
+            <Ionicons name="location-outline" size={16} color={COLORS.PRIMARY} />
+            <Text style={styles.metaText}>
+              {hospital.distanceMeters != null
+                ? `${(hospital.distanceMeters / 1000).toFixed(1)} km away`
+                : "Location available"}
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.actions}>
+        <Pressable
+          disabled={!hospital.phoneNumber}
+          onPress={onCall}
+          style={[
+            styles.callButton,
+            !hospital.phoneNumber && styles.disabledAction,
+          ]}
+        >
+          <Ionicons name="call-outline" size={20} color="#FFFFFF" />
+          <Text style={styles.callText}>
+            {hospital.phoneNumber ? "Call" : "No phone"}
+          </Text>
+        </Pressable>
+        <Pressable onPress={onMap} style={styles.mapButton}>
+          <Ionicons name="map-outline" size={18} color={COLORS.PRIMARY} />
+          <Text style={styles.mapText}>View Map</Text>
+        </Pressable>
+      </View>
+    </Pressable>
+  );
+}
+
+async function getOptionalLocation() {
   try {
-    const { data } = await api.get<
-      {
-        id: string;
-        name: string;
-        address: string;
-        latitude: number;
-        longitude: number;
-        phoneNumber?: string;
-        distanceKm?: number;
-      }[]
-    >("/hospitals/nearby", {
-      params: { lat: latitude, lng: longitude, limit: 10 },
+    const permission = await Location.requestForegroundPermissionsAsync();
+    if (!permission.granted) return null;
+    return Location.getCurrentPositionAsync({
+      accuracy: Location.Accuracy.Balanced,
     });
-    return data.map((hospital) => ({
-      id: hospital.id,
-      name: hospital.name,
-      address: hospital.address,
-      latitude: hospital.latitude,
-      longitude: hospital.longitude,
-      phone: hospital.phoneNumber,
-      distanceMeters:
-        typeof hospital.distanceKm === "number"
-          ? hospital.distanceKm * 1000
-          : undefined,
-    }));
   } catch {
-    return [];
+    return null;
   }
 }
 
-async function searchGoogleHospitals(
-  apiKey: string,
-  latitude: number,
-  longitude: number,
-): Promise<Hospital[]> {
-  try {
-    const response = await fetch(
-      "https://places.googleapis.com/v1/places:searchNearby",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Goog-Api-Key": apiKey,
-          "X-Goog-FieldMask":
-            "places.id,places.displayName,places.formattedAddress,places.location,places.nationalPhoneNumber",
-        },
-        body: JSON.stringify({
-          includedTypes: ["hospital"],
-          maxResultCount: 10,
-          rankPreference: "DISTANCE",
-          locationRestriction: {
-            circle: {
-              center: { latitude, longitude },
-              radius: 20000,
-            },
-          },
-        }),
-      },
-    );
-    if (!response.ok) return [];
-    const data = (await response.json()) as { places?: GooglePlace[] };
-
-    return (data.places ?? [])
-      .filter(
-        (place) =>
-          typeof place.location?.latitude === "number" &&
-          typeof place.location?.longitude === "number",
-      )
-      .map((place) => {
-        const hospitalLatitude = place.location?.latitude ?? latitude;
-        const hospitalLongitude = place.location?.longitude ?? longitude;
-        return {
-          id: place.id ?? `${hospitalLatitude}-${hospitalLongitude}`,
-          name: place.displayName?.text ?? "Hospital",
-          address: place.formattedAddress ?? "Address unavailable",
-          latitude: hospitalLatitude,
-          longitude: hospitalLongitude,
-          phone: place.nationalPhoneNumber,
-          distanceMeters: distanceInMeters(
-            latitude,
-            longitude,
-            hospitalLatitude,
-            hospitalLongitude,
-          ),
-        };
-      });
-  } catch {
-    return [];
-  }
-}
-
-async function searchOpenStreetMapHospitals(
-  latitude: number,
-  longitude: number,
-): Promise<Hospital[]> {
-  try {
-    const query = `[out:json][timeout:15];(node["amenity"="hospital"](around:20000,${latitude},${longitude});way["amenity"="hospital"](around:20000,${latitude},${longitude});relation["amenity"="hospital"](around:20000,${latitude},${longitude}););out center tags;`;
-    const response = await fetch(
-      `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`,
-    );
-    if (!response.ok) return [];
-    const data = (await response.json()) as { elements?: OverpassElement[] };
-
-    return (data.elements ?? [])
-      .reduce<Hospital[]>((hospitals, element) => {
-        const hospitalLatitude = element.lat ?? element.center?.lat;
-        const hospitalLongitude = element.lon ?? element.center?.lon;
-        if (
-          typeof hospitalLatitude !== "number" ||
-          typeof hospitalLongitude !== "number"
-        ) {
-          return hospitals;
-        }
-        hospitals.push({
-          id: `osm-${element.id}`,
-          name:
-            element.tags?.["name:en"] ??
-            element.tags?.name ??
-            "Nearby hospital",
-          address:
-            element.tags?.["addr:full"] ??
-            element.tags?.["addr:street"] ??
-            "Open in Maps for address",
-          latitude: hospitalLatitude,
-          longitude: hospitalLongitude,
-          phone: element.tags?.phone,
-          distanceMeters: distanceInMeters(
-            latitude,
-            longitude,
-            hospitalLatitude,
-            hospitalLongitude,
-          ),
-        });
-        return hospitals;
-      }, [])
-      .sort(
-        (first, second) =>
-          (first.distanceMeters ?? 0) - (second.distanceMeters ?? 0),
-      )
-      .slice(0, 10);
-  } catch {
-    return [];
-  }
+function regionFromHospital(hospital: Hospital): Region {
+  return {
+    latitude: hospital.latitude,
+    longitude: hospital.longitude,
+    latitudeDelta: 0.06,
+    longitudeDelta: 0.06,
+  };
 }
 
 function distanceInMeters(
@@ -385,29 +389,46 @@ function distanceInMeters(
       Math.cos(toRadians(latitude2)) *
       Math.sin(longitudeDelta / 2) ** 2;
 
-  return Math.round(earthRadius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+  return Math.round(
+    earthRadius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)),
+  );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { backgroundColor: COLORS.BACKGROUND, flex: 1 },
+  safeArea: {
+    backgroundColor: COLORS.BACKGROUND,
+    flex: 1,
+  },
   header: {
-    alignItems: "center",
+    alignItems: "flex-start",
     flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: 18,
-    paddingVertical: 12,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+  },
+  headerIcon: {
+    alignItems: "center",
+    backgroundColor: COLORS.PRIMARY_LIGHT,
+    borderRadius: 6,
+    height: 46,
+    justifyContent: "center",
+    marginTop: 2,
+    width: 46,
+  },
+  headerCopy: {
+    flex: 1,
+    marginLeft: 12,
   },
   eyebrow: {
     color: COLORS.PRIMARY,
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: "900",
-    letterSpacing: 1.2,
+    letterSpacing: 1.4,
   },
   title: {
     color: COLORS.TEXT_PRIMARY,
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: "900",
-    marginTop: 2,
+    marginTop: 5,
   },
   refreshButton: {
     alignItems: "center",
@@ -415,74 +436,216 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     height: 42,
     justifyContent: "center",
+    marginTop: 2,
     width: 42,
   },
-  map: { flex: 1 },
-  results: {
-    backgroundColor: COLORS.BACKGROUND,
-    minHeight: 165,
-    paddingVertical: 10,
+  searchBox: {
+    alignItems: "center",
+    backgroundColor: COLORS.BACKGROUND_LIGHT,
+    borderColor: COLORS.BORDER,
+    borderRadius: 6,
+    borderWidth: 1,
+    flexDirection: "row",
+    marginHorizontal: 20,
+    marginTop: 17,
+    paddingHorizontal: 13,
   },
-  center: { alignItems: "center", justifyContent: "center", padding: 20 },
-  loadingText: {
+  searchInput: {
+    color: COLORS.TEXT_PRIMARY,
+    flex: 1,
+    height: 48,
+    marginLeft: 8,
+  },
+  switcher: {
+    backgroundColor: COLORS.BACKGROUND_GRAY,
+    borderRadius: 6,
+    flexDirection: "row",
+    marginHorizontal: 20,
+    marginTop: 12,
+    padding: 4,
+  },
+  switchButton: {
+    alignItems: "center",
+    borderRadius: 4,
+    flex: 1,
+    height: 38,
+    justifyContent: "center",
+  },
+  switchActive: {
+    backgroundColor: COLORS.BACKGROUND_LIGHT,
+  },
+  switchText: {
+    color: COLORS.TEXT_SECONDARY,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  switchTextActive: {
+    color: COLORS.PRIMARY_DARK,
+  },
+  centerState: {
+    alignItems: "center",
+    flex: 1,
+    justifyContent: "center",
+    padding: 20,
+  },
+  centerText: {
     color: COLORS.TEXT_SECONDARY,
     fontSize: 13,
-    marginTop: 8,
+    marginTop: 12,
+    textAlign: "center",
   },
   errorText: {
     color: COLORS.ERROR,
     fontSize: 13,
     lineHeight: 19,
+    marginTop: 12,
     textAlign: "center",
   },
-  mapsButton: {
+  primaryAction: {
     backgroundColor: COLORS.PRIMARY_DARK,
     borderRadius: 6,
-    marginTop: 12,
+    marginTop: 18,
     paddingHorizontal: 17,
     paddingVertical: 10,
   },
-  mapsButtonText: { color: "#FFFFFF", fontSize: 11, fontWeight: "900" },
-  hospitalList: { paddingHorizontal: 12 },
-  hospitalCard: {
+  primaryActionText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "900",
+  },
+  listContent: {
+    padding: 20,
+    paddingBottom: 32,
+  },
+  countRow: {
+    marginBottom: 12,
+  },
+  countText: {
+    color: COLORS.TEXT_PRIMARY,
+    fontSize: 17,
+    fontWeight: "800",
+  },
+  countHint: {
+    color: COLORS.TEXT_SECONDARY,
+    fontSize: 12,
+    marginTop: 3,
+  },
+  card: {
     backgroundColor: COLORS.BACKGROUND_LIGHT,
     borderColor: COLORS.BORDER_LIGHT,
     borderRadius: 6,
     borderWidth: 1,
-    marginRight: 10,
+    marginBottom: 11,
     padding: 13,
-    width: 260,
+  },
+  compactCard: {
+    marginBottom: 0,
+  },
+  cardTop: {
+    flexDirection: "row",
+  },
+  hospitalMark: {
+    alignItems: "center",
+    backgroundColor: COLORS.PRIMARY_LIGHT,
+    borderRadius: 6,
+    height: 46,
+    justifyContent: "center",
+    width: 46,
+  },
+  cardCopy: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  cardTitleRow: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 8,
   },
   hospitalName: {
     color: COLORS.TEXT_PRIMARY,
+    flex: 1,
     fontSize: 15,
+    fontWeight: "800",
+    lineHeight: 20,
+  },
+  badge: {
+    backgroundColor: "#E8F6EF",
+    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  badgeText: {
+    color: COLORS.SUCCESS,
+    fontSize: 9,
     fontWeight: "900",
+    textTransform: "uppercase",
   },
   address: {
     color: COLORS.TEXT_SECONDARY,
     fontSize: 12,
     lineHeight: 17,
-    marginTop: 5,
+    marginTop: 4,
   },
-  cardFooter: {
+  metaRow: {
     alignItems: "center",
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: "auto",
+    marginTop: 10,
   },
-  distance: { color: COLORS.PRIMARY, fontSize: 12, fontWeight: "800" },
-  navigateButton: {
-    alignItems: "center",
-    backgroundColor: COLORS.PRIMARY,
-    borderRadius: 6,
-    flexDirection: "row",
-    paddingHorizontal: 11,
-    paddingVertical: 8,
-  },
-  navigateText: {
-    color: "#FFFFFF",
-    fontSize: 11,
+  metaText: {
+    color: COLORS.PRIMARY_DARK,
+    fontSize: 12,
     fontWeight: "800",
     marginLeft: 5,
+  },
+  actions: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 13,
+  },
+  callButton: {
+    alignItems: "center",
+    backgroundColor: COLORS.PRIMARY_DARK,
+    borderRadius: 6,
+    flex: 1,
+    flexDirection: "row",
+    height: 44,
+    justifyContent: "center",
+  },
+  disabledAction: {
+    backgroundColor: COLORS.TEXT_LIGHT,
+  },
+  callText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "900",
+    marginLeft: 7,
+  },
+  mapButton: {
+    alignItems: "center",
+    backgroundColor: COLORS.PRIMARY_LIGHT,
+    borderRadius: 6,
+    flex: 1,
+    flexDirection: "row",
+    height: 44,
+    justifyContent: "center",
+  },
+  mapText: {
+    color: COLORS.PRIMARY_DARK,
+    fontSize: 12,
+    fontWeight: "900",
+    marginLeft: 7,
+  },
+  mapScreen: {
+    flex: 1,
+    marginTop: 12,
+  },
+  map: {
+    flex: 1,
+  },
+  mapBottomCard: {
+    bottom: 12,
+    left: 12,
+    position: "absolute",
+    right: 12,
   },
 });
