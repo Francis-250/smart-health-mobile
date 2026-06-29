@@ -10,11 +10,18 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { COLORS } from "@/constants/colors";
-import {
-  FIRST_AID_TIPS,
-  FirstAidTip,
-} from "@/constants/first-aid-tips";
 import { api } from "@/lib/api";
+
+type FirstAidTip = {
+  id: string;
+  title: string;
+  category: string;
+  emergencyLevel: "Low" | "Medium" | "High" | "Emergency";
+  description: string;
+  steps: string[];
+  warnings: string[];
+  keywords: string[];
+};
 
 const LEVEL_COLORS = {
   Low: COLORS.SUCCESS,
@@ -26,9 +33,13 @@ const LEVEL_COLORS = {
 export default function FirstAidLibrary() {
   const [query, setQuery] = useState("");
   const [selectedTip, setSelectedTip] = useState<FirstAidTip | null>(null);
-  const [remoteTips, setRemoteTips] = useState<FirstAidTip[]>([]);
+  const [tips, setTips] = useState<FirstAidTip[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
+    setLoading(true);
+    setError("");
     api
       .get<
         {
@@ -42,7 +53,7 @@ export default function FirstAidLibrary() {
         }[]
       >("/first-aid-tips")
       .then(({ data }) =>
-        setRemoteTips(
+        setTips(
           data.map((tip) => ({
             id: tip.id,
             title: tip.title,
@@ -62,21 +73,23 @@ export default function FirstAidLibrary() {
           })),
         ),
       )
-      .catch(() => setRemoteTips([]));
+      .catch(() =>
+        setError("First-aid tips could not load from Smart Health."),
+      )
+      .finally(() => setLoading(false));
   }, []);
 
-  const tips = useMemo(() => {
-    const source = remoteTips.length ? remoteTips : FIRST_AID_TIPS;
+  const filteredTips = useMemo(() => {
     const term = query.trim().toLowerCase();
-    if (!term) return source;
+    if (!term) return tips;
 
-    return source.filter((tip) =>
+    return tips.filter((tip) =>
       [tip.title, tip.category, tip.description, ...tip.keywords]
         .join(" ")
         .toLowerCase()
         .includes(term),
     );
-  }, [query, remoteTips]);
+  }, [query, tips]);
 
   if (selectedTip) {
     return (
@@ -149,7 +162,18 @@ export default function FirstAidLibrary() {
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
       >
-        {tips.map((tip) => (
+        {loading ? (
+          <Text style={styles.emptyText}>Loading first-aid tips…</Text>
+        ) : error ? (
+          <View style={styles.stateCard}>
+            <Ionicons
+              name="cloud-offline-outline"
+              size={24}
+              color={COLORS.ERROR}
+            />
+            <Text style={styles.stateText}>{error}</Text>
+          </View>
+        ) : filteredTips.map((tip) => (
           <Pressable
             key={tip.id}
             onPress={() => setSelectedTip(tip)}
@@ -184,8 +208,12 @@ export default function FirstAidLibrary() {
             />
           </Pressable>
         ))}
-        {!tips.length ? (
-          <Text style={styles.emptyText}>No guide matched your search.</Text>
+        {!loading && !error && !filteredTips.length ? (
+          <Text style={styles.emptyText}>
+            {tips.length
+              ? "No guide matched your search."
+              : "No first-aid tips have been added by admin yet."}
+          </Text>
         ) : null}
       </ScrollView>
     </SafeAreaView>
@@ -272,6 +300,22 @@ const styles = StyleSheet.create({
     color: COLORS.TEXT_SECONDARY,
     marginTop: 30,
     textAlign: "center",
+  },
+  stateCard: {
+    alignItems: "center",
+    backgroundColor: COLORS.BACKGROUND_LIGHT,
+    borderColor: COLORS.BORDER_LIGHT,
+    borderRadius: 6,
+    borderWidth: 1,
+    flexDirection: "row",
+    padding: 15,
+  },
+  stateText: {
+    color: COLORS.TEXT_SECONDARY,
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 19,
+    marginLeft: 10,
   },
   detailContent: { padding: 20, paddingBottom: 40 },
   backButton: { alignItems: "center", flexDirection: "row", marginBottom: 22 },
